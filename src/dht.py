@@ -1,39 +1,38 @@
 import asyncio
-import sys
 from kademlia.network import Server
+from libs.myformatter import MyLogger, MyLoggerType
 
-class KademliaNode:
-    def __init__(self, loop):
-        self.loop = loop
-        self.node = Server()
-        self.loop.add_reader(sys.stdin, self.handle_input)
+import config
 
-    async def start(self):
-        self.node.listen(8468)
-        await self.node.bootstrap([])
-        print("DHT-node started.")
+class KademliaServer:
+    def __init__(self, port=8468):
+        self.port = port
+        self.server = Server()
+        self.loop = asyncio.get_event_loop()
+        self._configure_logging()
 
-    async def stop(self):
-        await self.node.stop()
-        print("DHT-node stopped.")
+    def _configure_logging(self):
+        self.logger = MyLogger('kademlia', MyLoggerType.DEBUG, config.paths["dirs"]["log_dht"]).logger
 
-    def handle_input(self):
-        if sys.stdin.readline().strip() == 'q':
-            asyncio.ensure_future(self.stop())
+    async def _start(self):
+        await self.server.listen(self.port)
+        self.logger.debug("Server started")
+        self.loop.set_debug(True)
 
-async def main():
-    loop = asyncio.get_running_loop()
-    node = KademliaNode(loop)
-    await node.start()
+    def _stop(self):
+        self.server.stop()
+        self.logger.debug("Server stopped")
 
-    # Keep the event loop running until the node is stopped
-    while True:
+    def run_forever(self):
         try:
-            await asyncio.sleep(1)
+            self.loop.run_until_complete(self._start())
+            self.loop.run_forever()
         except KeyboardInterrupt:
-            print("KeyboardInterrupt, stopping...")
-            await node.stop()
-            break
+            pass
+        finally:
+            self._stop()
+            self.loop.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    server = KademliaServer()
+    server.run_forever()
