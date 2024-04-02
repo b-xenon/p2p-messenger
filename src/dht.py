@@ -5,7 +5,7 @@ from libs.myformatter import MyLogger, MyLoggerType
 import config
 
 class KademliaServer:
-    def __init__(self, port=8468):
+    def __init__(self, port: int = config.DHT_PORT):
         self.port = port
         self.server = Server()
         self.loop = asyncio.get_event_loop()

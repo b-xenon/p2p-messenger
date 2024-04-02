@@ -24,7 +24,7 @@ class MyLogger:
         current_datetime = datetime.now()
         
         # Форматируем строку в нужном формате: yyyy_mm_dd-HH_MM.txt
-        log_filename = f'{logger_dir}{current_datetime.strftime("%Y_%m_%d-%H_%M")}.log'
+        log_filename = f'{logger_dir}{current_datetime.strftime("%Y_%m_%d-%H_%M_%S")}.log'
         os.makedirs(logger_dir, exist_ok=True)
         if os.path.exists(log_filename):
             os.remove(log_filename)
