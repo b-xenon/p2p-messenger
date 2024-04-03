@@ -21,6 +21,7 @@ class Session:
         # self._logger.debug(f"Начинаю прослушивать порт [{self._listen_port_connection_checking}].")
 
         self._thread_connection_checking = threading.Thread(target=self._handle_client, daemon=True)
+        self._thread_connection_checking.start()
 
     def connect(self) -> bool:
         try:
@@ -33,7 +34,7 @@ class Session:
             }}).encode()
             self._socket.sendall(data_to_send)      # Отправляем Init
 
-            self._logger.debug(f"Отправил Ack сообщение клиенту [{self._address}].")
+            self._logger.debug(f"Отправил Init сообщение клиенту [{self._address}].")
             return True
         
         except OSError:
@@ -119,6 +120,8 @@ class Session:
     def close(self):
         self._session_is_active = False
         self._socket.close()
+
+        self._thread_connection_checking.join()
         self._logger.debug(f"Сессия для клиента [{self._address}] завершена.")
 
         # TODO
