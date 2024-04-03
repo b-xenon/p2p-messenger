@@ -51,8 +51,14 @@ class Dialog(ttk.Frame):
             if self._command:
                 self._command()
 
-    def recieve_message(self, interlocutor_name: str) -> None:
-        pass
+    def recieve_message(self, interlocutor_name: str, message: str) -> None:
+        if message:
+            formatted_message = f"{interlocutor_name}: {message}\n"
+
+            # Добавляем сообщение в конец
+            self._text_dialog.config(state='normal')
+            self._text_dialog.insert(tk.END, f'{formatted_message}')
+            self._text_dialog.config(state='disabled')
 
     def _generate_random_username(self) -> str:
         # Строка со всеми буквами и цифрами

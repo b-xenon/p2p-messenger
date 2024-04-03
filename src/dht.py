@@ -1,11 +1,11 @@
 import asyncio
 from kademlia.network import Server
-from libs.myformatter import MyLogger, MyLoggerType
+from libs.mylogger import MyLogger, MyLoggerType
 
 import config
 
 class KademliaServer:
-    def __init__(self, port: int = config.DHT_PORT):
+    def __init__(self, port: int = config.PORT_DHT):
         self.port = port
         self.server = Server()
         self.loop = asyncio.get_event_loop()

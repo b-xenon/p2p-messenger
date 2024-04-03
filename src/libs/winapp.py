@@ -3,11 +3,13 @@ from tkinter import ttk
 
 import socket
 import requests
+import threading
 
 import re
 import config
-from libs.myformatter import MyLogger, MyLoggerType
-from libs import widgets
+from libs.mylogger import MyLogger, MyLoggerType
+from libs.widgets import Chats
+from libs.network import Client
 
 class WinApp(tkinter.Tk):
     def __init__(self, use_local_ip: bool = True) -> None:
@@ -16,7 +18,10 @@ class WinApp(tkinter.Tk):
         self._logger = MyLogger('client', MyLoggerType.DEBUG, config.paths["dirs"]["log_client"]).logger
         self._ip_address = self._get_ip_address()
 
+        self._is_close_program_event = False
+
         self._active_clients = []
+        self._our_client = Client(self._logger)
 
         self.title(f"Client {self._ip_address}")
         self.geometry('750x700')
@@ -37,7 +42,9 @@ class WinApp(tkinter.Tk):
                                                              width=30, command=self._connect_to_another_client)
         self._button_connect_to_another_client.pack(padx=10, pady=10)
         
-        self._chats = widgets.Chats(self._frame_main, self._ip_address, lambda: self._send_message_to_another_client())
+        self._chats = Chats(self._frame_main, self._ip_address, lambda: self._send_message_to_another_client())
+
+        self.protocol("WM_DELETE_WINDOW", self._prepare_to_close_program)
 
     def _get_ip_address(self) -> str:
         ip_address = None
@@ -82,11 +89,13 @@ class WinApp(tkinter.Tk):
             self._logger.debug(f"Диалог с клиентом {another_client_ip} уже открыт.")
             return
         
-        if not self._chats.size():
-            self._chats.pack(expand=True, fill='both', padx=10, pady=10)
+        # Если удалось установить соединение
+        if self._our_client.connect(another_client_ip):
+            if not self._chats.size():
+                self._chats.pack(expand=True, fill='both', padx=10, pady=10)
 
-        self._chats.add_chat(another_client_ip)
-        self._active_clients.append(another_client_ip)
+            self._chats.add_chat(another_client_ip)
+            self._active_clients.append(another_client_ip)
 
     def _is_ipv4(self, addr: str) -> bool:
         # Регулярное выражение для проверки IPv4
@@ -101,12 +110,23 @@ class WinApp(tkinter.Tk):
         pass
 
 
+    def _prepare_to_close_program(self) -> None:
+        
+        def __close_program():
+            self._logger.debug("Завершаю программу...")
+            self._our_client.close()
+            self.destroy()
+
+        
+        if not self._is_close_program_event:
+            self._is_close_program_event = True
+            threading.Thread(target=__close_program, daemon=True).start()
+
+    def close(self):
+        self._prepare_to_close_program()
+
     def run(self) -> None:
         self.mainloop()
-
-    class Session:
-        def __init__(self) -> None:
-            pass
 
 
 if __name__ == "__main__":
