@@ -5,13 +5,19 @@ import random
 import string
 
 class Dialog(ttk.Frame):
-    def __init__(self, master=None, username=None, command=None, **kwargs) -> None:
+    objects_counter = 0
+
+    def __init__(self, master, username=None, dialog_name=None, command=None, **kwargs) -> None:
         super().__init__(master, **kwargs)
 
         self._master = master
-        self._username = username if username is not None else self._generate_random_username()
+        self._username = username if username is not None else self._generate_random_name()
         self._command = command
         
+        self._dialog_name = dialog_name if dialog_name is not None else self._generate_random_name()
+        self._id = Dialog.objects_counter
+        Dialog.objects_counter += 1
+
         # Создание виджетов Text и Button
         self._text_dialog = tk.Text(self, state='disabled')
         self._text_input_message = tk.Text(self, height=4)
@@ -60,36 +66,49 @@ class Dialog(ttk.Frame):
             self._text_dialog.insert(tk.END, f'{formatted_message}')
             self._text_dialog.config(state='disabled')
 
-    def _generate_random_username(self) -> str:
+    def _generate_random_name(self) -> str:
         # Строка со всеми буквами и цифрами
         characters = string.ascii_letters + string.digits
         # Выбор случайных символов из строки characters
         random_string = ''.join(random.choice(characters) for i in range(12))
         return random_string
     
+    def get_id(self):
+        return self._id
+    
 class Chats(ttk.Frame):
     def __init__(self, master=None, username=None, command=None, **kwargs) -> None:
         super().__init__(master, **kwargs)
 
         self._master = master
-        self._username = username if username is not None else self._generate_random_username()
+        self._username = username
         self._command = command
         self._dialogs = []
-        self._dialogs_names = []
 
         # Создание виджета Notebook
         self._notebook_chats = ttk.Notebook(self)
         self._notebook_chats.pack(expand=True, fill='both', padx=10, pady=10)
     
-    def add_chat(self, dialog_name: str) -> None:
+    def add_dialog(self, dialog_name: str) -> int:
         # Создание новой вкладки с CustomWidget
-        self._dialogs.append(Dialog(self._notebook_chats, username=self._username, command=self._command))
-        self._dialogs_names.append(dialog_name)
+        self._dialogs.append(Dialog(self._notebook_chats, username=self._username, dialog_name=dialog_name, command=self._command))
 
         self._dialogs[-1].pack(expand=True, fill='both')
 
         self._notebook_chats.add(self._dialogs[-1], text=f"{dialog_name}")
         self._notebook_chats.select(self._notebook_chats.index('end') - 1)
+
+        return self._dialogs[-1].get_id()
+
+    def hide_dialog(self, dialog_id: int) -> None:
+        if dialog_id >= len(self._dialogs) or dialog_id < 0:
+            return
+        self._dialogs[dialog_id].pack_forget()
+        
+    def load_dialog(self, dialog_id: int) -> None:
+        if dialog_id >= len(self._dialogs) or dialog_id < 0:
+            return
+        self._dialogs[dialog_id].pack(expand=True, fill='both')
 
     def size(self) -> int:
         return len(self._dialogs)

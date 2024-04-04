@@ -20,7 +20,8 @@ class WinApp(tkinter.Tk):
 
         self._is_close_program_event = False
 
-        self._active_clients = []
+        self._active_dialogs = {}
+        self._inactive_dialogs = {}
         self._our_client = Client(self._logger)
 
         self.title(f"Client {self._ip_address}")
@@ -43,6 +44,8 @@ class WinApp(tkinter.Tk):
         self._button_connect_to_another_client.pack(padx=10, pady=10)
         
         self._chats = Chats(self._frame_main, self._ip_address, lambda: self._send_message_to_another_client())
+
+        threading.Thread(target=self._handle_dialog, daemon=True).start()
 
         self.protocol("WM_DELETE_WINDOW", self._prepare_to_close_program)
 
@@ -73,6 +76,36 @@ class WinApp(tkinter.Tk):
 
         return ip_address
 
+    def _handle_dialog(self):
+        while self._our_client.get_state():
+            self._our_client.event.wait()
+            self._our_client.event.clear()
+
+            while not self._our_client.event.data.empty():
+                event_data = self._our_client.event.data.get(block=False)
+                if not event_data:
+                    break
+
+                if config.EVENT_CONNECT in event_data:
+                    if not self._chats.size():
+                        self._chats.pack(expand=True, fill='both', padx=10, pady=10)
+
+                    if event_data[config.EVENT_CONNECT][0] in self._inactive_dialogs:
+                        self._chats.load_dialog(self._inactive_dialogs[event_data[config.EVENT_CONNECT][0]])
+                        self._active_dialogs[event_data[config.EVENT_CONNECT][0]] = self._inactive_dialogs[event_data[config.EVENT_CONNECT][0]]
+                        del self._inactive_dialogs[event_data[config.EVENT_CONNECT][0]]
+                    else:
+                        self._active_dialogs[event_data[config.EVENT_CONNECT][0]] = self._chats.add_dialog(event_data[config.EVENT_CONNECT][0])
+                
+                elif config.EVENT_DISCONNECT in event_data:
+                    # self._chats.hide_dialog(self._active_dialogs[event_data[config.EVENT_CONNECT][0]])
+                    self._chats.inactivate_dialog(self._active_dialogs[event_data[config.EVENT_CONNECT][0]])
+                    self._inactive_dialogs[event_data[config.EVENT_CONNECT][0]] = self._active_dialogs[event_data[config.EVENT_CONNECT][0]]
+                    del self._active_dialogs[event_data[config.EVENT_CONNECT][0]]
+
+                elif config.EVENT_CLOSE in event_data:
+                    return
+
     def _connect_to_another_client(self):
         another_client_ip = self._entry_another_client_ip_var.get() 
         
@@ -85,17 +118,13 @@ class WinApp(tkinter.Tk):
                                f" Ip-адрес должен быть в формате IPv4!")
             return
         
-        if another_client_ip in self._active_clients:
+        if another_client_ip in self._active_dialogs:
             self._logger.debug(f"Диалог с клиентом {another_client_ip} уже открыт.")
             return
         
-        # Если удалось установить соединение
-        if self._our_client.connect(another_client_ip):
-            if not self._chats.size():
-                self._chats.pack(expand=True, fill='both', padx=10, pady=10)
-
-            self._chats.add_chat(another_client_ip)
-            self._active_clients.append(another_client_ip)
+        # установаем соединение
+        self._our_client.connect(another_client_ip)
+        
 
     def _is_ipv4(self, addr: str) -> bool:
         # Регулярное выражение для проверки IPv4

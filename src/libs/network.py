@@ -7,12 +7,13 @@ from logging import Logger
 import config
 
 class Session:
-    def __init__(self, socket: socket.socket, address: tuple, logger: Logger) -> None:
+    def __init__(self, socket: socket.socket, address: tuple, logger: Logger, event: threading.Event) -> None:
         self._socket = socket
         self._address = address
         self._logger = logger
         self._session_is_active = True
         self._last_ping_time = time.time()
+        self._event = event
 
         self._listen_port_communication = config.PORT_CLIENT_COMMUNICATION
         # self._listener_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -69,6 +70,7 @@ class Session:
                     self._socket.sendall(data_to_send)      # Отправляем ответ на Init
                     
                     self._create_connection_for_communication()
+                    self._event.set()
 
                     self._logger.debug(f"Отправил Ack сообщение клиенту [{self._address}].")
                 
@@ -77,6 +79,7 @@ class Session:
                     self._logger.debug(f"Получил Ack сообщение от клиента [{self._address}].")
 
                     self._create_connection_for_communication()
+                    self._event.set()
                     self._send_ping()
 
                 elif config.MESSAGE_PING in json_data:
@@ -142,6 +145,7 @@ class Client:
         self._client_state_is_active = True
         self._listen_port_connection_checking = config.PORT_CLIENT_CONNECTION_CHECKING
         self._logger = logger
+        self.event = threading.Event()
 
         # Список активных сессий
         self._sessions = []
@@ -169,7 +173,7 @@ class Client:
             try:
                 client_socket, addr = self._listener_socket.accept()
                 self._logger.debug(f'Создаю новую сессию с [{addr}].')
-                self._sessions.append(Session(client_socket, addr, self._logger))
+                self._sessions.append(Session(client_socket, addr, self._logger, self.event))
 
             except OSError as e:
                 self._logger.debug(f'Завершаю прослушивание порта [{self._listen_port_connection_checking}].')
@@ -179,7 +183,9 @@ class Client:
         self._sessions.append(Session(
             socket.socket(socket.AF_INET, socket.SOCK_STREAM),
             (interlocutor_ip, config.PORT_CLIENT_CONNECTION_CHECKING),
-            self._logger))
+            self._logger,
+            self.event
+        ))
         
         return self._sessions[-1].connect()
 
