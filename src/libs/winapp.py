@@ -88,6 +88,8 @@ class WinApp(tkinter.Tk):
                 
                 try:
                     if config.EVENT_CONNECT in event_data:
+                        empty_chat = True if not self._chats.size() else False
+
                         if event_data[config.EVENT_CONNECT][0] in self._inactive_dialogs:
                             self._chats.load_dialog(self._inactive_dialogs[event_data[config.EVENT_CONNECT][0]])
                             self._active_dialogs[event_data[config.EVENT_CONNECT][0]] = self._inactive_dialogs[event_data[config.EVENT_CONNECT][0]]
@@ -95,7 +97,7 @@ class WinApp(tkinter.Tk):
                         else:
                             self._active_dialogs[event_data[config.EVENT_CONNECT][0]] = self._chats.add_dialog(event_data[config.EVENT_CONNECT][0])
                     
-                        if not self._chats.size():
+                        if empty_chat:
                             self._chats.pack(expand=True, fill='both', padx=10, pady=10)
 
                     elif config.EVENT_DISCONNECT in event_data:
