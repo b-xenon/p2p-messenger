@@ -29,7 +29,7 @@ class Session:
             
             self._socket.connect(self._address)
 
-            data_to_send = json.dumps({config.MESSAGE_INIT*2: {
+            data_to_send = json.dumps({config.MESSAGE_INIT: {
                 'data': 555
             }}).encode()
             self._socket.sendall(data_to_send)      # Отправляем Init
