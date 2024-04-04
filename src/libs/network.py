@@ -1,13 +1,19 @@
 import time
 import json
 import socket
+import queue
 import threading
 from logging import Logger
 
 import config
 
+class Event(threading.Event):
+    def __init__(self) -> None:
+        super().__init__()
+        self.data = queue.Queue()
+
 class Session:
-    def __init__(self, socket: socket.socket, address: tuple, logger: Logger, event: threading.Event) -> None:
+    def __init__(self, socket: socket.socket, address: tuple, logger: Logger, event: Event) -> None:
         self._socket = socket
         self._address = address
         self._logger = logger
@@ -70,6 +76,7 @@ class Session:
                     self._socket.sendall(data_to_send)      # Отправляем ответ на Init
                     
                     self._create_connection_for_communication()
+                    self._event.data.put({config.EVENT_CONNECT: self._address})
                     self._event.set()
 
                     self._logger.debug(f"Отправил Ack сообщение клиенту [{self._address}].")
@@ -79,6 +86,7 @@ class Session:
                     self._logger.debug(f"Получил Ack сообщение от клиента [{self._address}].")
 
                     self._create_connection_for_communication()
+                    self._event.data.put({config.EVENT_CONNECT: self._address})
                     self._event.set()
                     self._send_ping()
 
@@ -128,6 +136,9 @@ class Session:
     def close(self):
         self._session_is_active = False
         self._socket.close()
+
+        self._event.data.put({config.EVENT_DISCONNECT: self._address})
+        self._event.set()
        
         try:
             self._thread_connection_checking.join()
@@ -145,7 +156,7 @@ class Client:
         self._client_state_is_active = True
         self._listen_port_connection_checking = config.PORT_CLIENT_CONNECTION_CHECKING
         self._logger = logger
-        self.event = threading.Event()
+        self.event = Event()
 
         # Список активных сессий
         self._sessions = []
@@ -199,5 +210,9 @@ class Client:
         for session in self._sessions:
             session.close()
         
+        self.event.data.put({config.EVENT_CLOSE: None})
+        self.event.set()
         self._logger.debug("Все сессии завершены.")
-            
+    
+    def get_state(self) -> bool:
+        return self._client_state_is_active

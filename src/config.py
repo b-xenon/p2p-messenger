@@ -18,7 +18,11 @@ MESSAGE_PING = "2"
 MESSAGE_PONG = "3"
 # -------------
 
-
+# ----Events----
+EVENT_CONNECT = 0
+EVENT_DISCONNECT = 1
+EVENT_CLOSE = 2
+# --------------
 
 
 # ----Pathes----
