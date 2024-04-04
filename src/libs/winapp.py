@@ -99,9 +99,9 @@ class WinApp(tkinter.Tk):
                 
                 elif config.EVENT_DISCONNECT in event_data:
                     # self._chats.hide_dialog(self._active_dialogs[event_data[config.EVENT_CONNECT][0]])
-                    self._chats.inactivate_dialog(self._active_dialogs[event_data[config.EVENT_CONNECT][0]])
-                    self._inactive_dialogs[event_data[config.EVENT_CONNECT][0]] = self._active_dialogs[event_data[config.EVENT_CONNECT][0]]
-                    del self._active_dialogs[event_data[config.EVENT_CONNECT][0]]
+                    self._chats.inactivate_dialog(self._active_dialogs[event_data[config.EVENT_DISCONNECT][0]])
+                    self._inactive_dialogs[event_data[config.EVENT_DISCONNECT][0]] = self._active_dialogs[event_data[config.EVENT_DISCONNECT][0]]
+                    del self._active_dialogs[event_data[config.EVENT_DISCONNECT][0]]
 
                 elif config.EVENT_CLOSE in event_data:
                     return
