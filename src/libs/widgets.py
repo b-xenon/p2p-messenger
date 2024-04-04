@@ -76,6 +76,15 @@ class Dialog(ttk.Frame):
     def get_id(self):
         return self._id
     
+    def activate(self):
+        self._text_input_message.config(state='normal')
+        self._button_send_input_message.config(state='normal')
+
+    def inactivate(self):
+        self._text_input_message.config(state='disabled')
+        self._button_send_input_message.config(state='disabled')
+    
+
 class Chats(ttk.Frame):
     def __init__(self, master=None, username=None, command=None, **kwargs) -> None:
         super().__init__(master, **kwargs)
@@ -100,6 +109,11 @@ class Chats(ttk.Frame):
 
         return self._dialogs[-1].get_id()
 
+    def inactivate_dialog(self, dialog_id: int) -> None:
+        if dialog_id >= len(self._dialogs) or dialog_id < 0:
+            return
+        self._dialogs[dialog_id].inactivate()
+
     def hide_dialog(self, dialog_id: int) -> None:
         if dialog_id >= len(self._dialogs) or dialog_id < 0:
             return
@@ -108,7 +122,10 @@ class Chats(ttk.Frame):
     def load_dialog(self, dialog_id: int) -> None:
         if dialog_id >= len(self._dialogs) or dialog_id < 0:
             return
-        self._dialogs[dialog_id].pack(expand=True, fill='both')
+        if not self._dialogs[dialog_id].winfo_viewable():
+            self._dialogs[dialog_id].pack(expand=True, fill='both')
+        
+        self._dialogs[dialog_id].activate()
 
     def size(self) -> int:
         return len(self._dialogs)
