@@ -109,7 +109,7 @@ class Session:
 
     def _send_ping(self) -> None:
         while self._session_is_active and time.time() - self._last_ping_time < config.PING_INTERVAL:
-            time.sleep(0,1)
+            time.sleep(0.1)
 
         data_to_send = json.dumps({config.MESSAGE_PING: None}).encode()
         self._socket.sendall(data_to_send)      # Отправляем Ping
