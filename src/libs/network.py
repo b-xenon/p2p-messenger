@@ -120,8 +120,12 @@ class Session:
     def close(self):
         self._session_is_active = False
         self._socket.close()
+       
+        try:
+            self._thread_connection_checking.join()
+        except RuntimeError:
+            pass
 
-        self._thread_connection_checking.join()
         self._logger.debug(f"Сессия для клиента [{self._address}] завершена.")
 
         # TODO

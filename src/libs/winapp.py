@@ -129,10 +129,6 @@ class WinApp(tkinter.Tk):
         self.mainloop()
 
 
-if __name__ == "__main__":
-    winapp = WinApp()
-    winapp.run()
-
 # import asyncio
 # import sys
 

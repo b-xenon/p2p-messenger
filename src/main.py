@@ -6,4 +6,4 @@ if __name__ == "__main__":
         winapp = WinApp()
         winapp.run()
     except KeyboardInterrupt:
-        winapp.close()
+        winapp.close1()
