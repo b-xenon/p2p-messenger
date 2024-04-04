@@ -29,7 +29,7 @@ class Session:
             
             self._socket.connect(self._address)
 
-            data_to_send = json.dumps({config.MESSAGE_INIT: {
+            data_to_send = json.dumps({config.MESSAGE_INIT*2: {
                 'data': 555
             }}).encode()
             self._socket.sendall(data_to_send)      # Отправляем Init
@@ -52,44 +52,47 @@ class Session:
         while self._session_is_active:
             try:
                 # Получаем данные из сокета (до 1024 байт) и переводим байтовую строку в Unicode для python
-                data = self._socket.recv(1024)
-                if data:
-                    json_data = json.loads(data.decode())
+                data = self._socket.recv(1024).decode()
+                
+                if not data:
+                    raise socket.timeout
 
-                    if config.MESSAGE_INIT in json_data:
-                        self._last_ping_time = time.time()      # Обновляем время последнего пинга
-                        self._logger.debug(f"Получил Init сообщение от клиента [{self._address}].")
+                json_data = json.loads(data)
 
-                        data_to_send = json.dumps({config.MESSAGE_ACK: {
-                            'data': 123
-                        }}).encode()
-                        self._socket.sendall(data_to_send)      # Отправляем ответ на Init
-                        
-                        self._create_connection_for_communication()
+                if config.MESSAGE_INIT in json_data:
+                    self._last_ping_time = time.time()      # Обновляем время последнего пинга
+                    self._logger.debug(f"Получил Init сообщение от клиента [{self._address}].")
 
-                        self._logger.debug(f"Отправил Ack сообщение клиенту [{self._address}].")
+                    data_to_send = json.dumps({config.MESSAGE_ACK: {
+                        'data': 123
+                    }}).encode()
+                    self._socket.sendall(data_to_send)      # Отправляем ответ на Init
                     
-                    elif config.MESSAGE_ACK in json_data:
-                        self._last_ping_time = time.time()      # Обновляем время последнего пинга
-                        self._logger.debug(f"Получил Ack сообщение от клиента [{self._address}].")
+                    self._create_connection_for_communication()
 
-                        self._create_connection_for_communication()
-                        self._send_ping()
+                    self._logger.debug(f"Отправил Ack сообщение клиенту [{self._address}].")
+                
+                elif config.MESSAGE_ACK in json_data:
+                    self._last_ping_time = time.time()      # Обновляем время последнего пинга
+                    self._logger.debug(f"Получил Ack сообщение от клиента [{self._address}].")
 
-                    elif config.MESSAGE_PING in json_data:
-                        self._last_ping_time = time.time()      # Обновляем время последнего пинга
-                        self._logger.debug(f"Получил Ping сообщение от клиента [{self._address}].")
+                    self._create_connection_for_communication()
+                    self._send_ping()
 
-                        data_to_send = json.dumps({config.MESSAGE_PONG: None}).encode()
-                        self._socket.sendall(data_to_send)      # Отправляем ответ на Ping
+                elif config.MESSAGE_PING in json_data:
+                    self._last_ping_time = time.time()      # Обновляем время последнего пинга
+                    self._logger.debug(f"Получил Ping сообщение от клиента [{self._address}].")
 
-                        self._logger.debug(f"Отправил Pong сообщение клиенту [{self._address}].")
+                    data_to_send = json.dumps({config.MESSAGE_PONG: None}).encode()
+                    self._socket.sendall(data_to_send)      # Отправляем ответ на Ping
 
-                    elif config.MESSAGE_PONG in json_data:
-                        self._last_ping_time = time.time()      # Обновляем время последнего пинга
-                        self._logger.debug(f"Получил Pong сообщение от клиента [{self._address}].")
+                    self._logger.debug(f"Отправил Pong сообщение клиенту [{self._address}].")
 
-                        self._send_ping()
+                elif config.MESSAGE_PONG in json_data:
+                    self._last_ping_time = time.time()      # Обновляем время последнего пинга
+                    self._logger.debug(f"Получил Pong сообщение от клиента [{self._address}].")
+
+                    self._send_ping()
                     
             except socket.timeout as e:
                 self._logger.debug(f"Клиент не отвечает, закрываю соединение с [{self._address}].")
