@@ -133,7 +133,7 @@ class WinApp(tkinter.Tk):
                             ).start()
 
                     elif Event.EVENT_ADD_SEND_DATA in event_data:
-                        event_data = event_data[Event.EVENT_ADD_RECV_DATA] 
+                        event_data = event_data[Event.EVENT_ADD_SEND_DATA] 
                         interlocutor_ip = event_data['addr'][0]
                         is_resended = event_data['res_state']
 
