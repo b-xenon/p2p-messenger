@@ -159,7 +159,7 @@ class Chats(ttk.Frame):
         dlg = Dialog(self._notebook_chats, interlocutor_ip, username=self._username, dialog_name=dialog_name, command=self._command)
         self._dialogs[dlg.get_id()] = dlg
 
-        self.dlg.pack(expand=True, fill='both')
+        dlg.pack(expand=True, fill='both')
 
         self._notebook_chats.add(dlg, text=f"{dialog_name}")
         self._notebook_chats.select(self._notebook_chats.index('end') - 1)

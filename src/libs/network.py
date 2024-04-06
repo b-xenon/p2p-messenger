@@ -248,6 +248,7 @@ class Session:
                 # Отправляем Ping
                 self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
                 self._logger.debug(f"Отправил Ping сообщение клиенту [{self._address}].")
+                self._last_ping_time = time.time()      # Обновляем время последнего пинга
             except OSError:
                 self._logger.debug(f"Не удалось отправить пинг клиенту [{self._address}].")
 
