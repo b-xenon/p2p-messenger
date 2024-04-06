@@ -20,13 +20,22 @@ class Encrypter:
         return self._public_key.export_key(format='PEM')
 
     def generate_dh_keypair(self):
+        """Генерирует пару ключей ECC."""
+
         self._private_key = ECC.generate(curve='P-256')
         self._public_key = self._private_key.public_key()
 
     def calculate_dh_secret(self, peer_pub_key: str):
+        """Вычисляет общий секрет с использованием ECDH."""
+
         peer_pub_key = ECC.import_key(peer_pub_key)
         # Используем HKDF для генерации общего секретного ключа фиксированного размера
-        self._secret_key = HKDF(self._private_key.exchange_ecdh(peer_pub_key), 16, b"", SHA256)
+        
+        shared_secret = self._private_key.pointQ * peer_pub_key.pointQ
+        # Преобразование общего секрета в байты
+        shared_secret_bytes = shared_secret.x.to_bytes()
+        # Использование HKDF для получения ключа фиксированного размера из общего секрета
+        self._secret_key = HKDF(shared_secret_bytes, 16, b"", SHA256)
 
     def encrypt(self, message: bytes) -> tuple[bytes, bytes]:
         # Шифрование данных
