@@ -129,7 +129,7 @@ class Session:
                         'msg_id': row[1],
                         'time': row[4]
                     }
-                if row[0] is True:
+                if int(row[0]):
                     self._dialog_history.append(message)
                 else:
                     self._temp_buffer_of_our_messages[row[1]] = message
@@ -190,7 +190,7 @@ class Session:
                         # Проверяем, сохранились ли данные меседжи в временном буфере
                         if not self._temp_buffer_of_our_messages and interlocutor_last_message_id not in self._temp_buffer_of_our_messages:
                             # Если нет, то отправляем последние сообщения, как новые
-                            self.send(self._dialog_history[-1])
+                            self.send(self._dialog_history[-1], is_resended=True)
                             return
                         
                         # Иначе просто сохраняем сообщения из буфера в историю
@@ -419,9 +419,19 @@ class Session:
 
             
                 elif Message.MESSAGE_SYNC_DATA in json_data:
-                    pass
+                    self._last_ping_time = time.time()      # Обновляем время последнего пинга
+                    self._logger.debug(f"Получил Sync сообщение от клиента [{self._address}].")
 
-                
+                    message_num = json_data[Message.MESSAGE_SYNC_DATA]['data']
+
+                    self._logger.debug(f"Начинаю отправлять последние [{message_num}] сообщений клиенту [{self._address}].")
+                    # Переотправляем N месседжей из истории
+                    messages = self._dialog_history[-message_num:]
+                    for message in messages:
+                        self.send(message, is_resended=True)
+
+                    self._logger.debug(f"Последние [{message_num}] сообщений клиенту [{self._address}] были отправлены.")
+
                 elif Message.MESSAGE_SYNC_SEND_DATA in json_data:
                     pass
 
@@ -481,6 +491,7 @@ class Session:
             self._event.data.put({Event.EVENT_DISCONNECT: self._address})
             self._event.set()
 
+            print(self._temp_buffer_of_our_messages.values())
             self._save_message_in_db(list(self._temp_buffer_of_our_messages.values()), is_temp_buffer_elements=True)
 
             try:
