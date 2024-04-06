@@ -209,6 +209,7 @@ class Dialog(ttk.Frame):
 
         # Прокрутка к последней добавленной строке
         self._text_dialog.see(tk.END)
+        self._update_progress()
 
     def _generate_random_name(self) -> str:
         # Строка со всеми буквами и цифрами
