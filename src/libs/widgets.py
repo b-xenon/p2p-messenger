@@ -85,7 +85,7 @@ class Dialog(ttk.Frame):
             if 'm' in message['msg_id']:
                 c = int(message['msg_id'].replace('m', ''))
                 if self._message_id_counter < c:
-                    self._message_id_counter = c
+                    self._message_id_counter = c + 1
 
             if len(self._messages):
                 last_my_message_time = datetime.fromisoformat(self._messages[-1]['time'])
@@ -114,7 +114,9 @@ class Dialog(ttk.Frame):
                 self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
 
                 self._messages.append(message)
-            self._message_id_counter = counter
+            
+            if self._message_id_counter != counter:
+                self._message_id_counter = counter + 1
 
     def _restruct_dialog_messages(self, recv_message: dict) -> None:
         counter = 0
