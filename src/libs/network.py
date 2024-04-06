@@ -4,6 +4,8 @@ import socket
 import queue
 import threading
 import sqlite3
+
+from libs.cryptography import Encrypter
 from logging import Logger
 
 import config
@@ -19,8 +21,6 @@ class Message:
     MESSAGE_RECV_DATA = "5"
 
     MESSAGE_SYNC_DATA = "6"
-    MESSAGE_SYNC_SEND_DATA = "7"
-    MESSAGE_SYNC_RECV_DATA = "8"
 
 
 class Event(threading.Event):
@@ -46,6 +46,8 @@ class Session:
         self._last_ping_time = time.time()
         self._event = event
 
+        self._crypto = Encrypter()
+
         self._session_id = Session.session_counter
         Session.session_counter += 1
 
@@ -70,7 +72,9 @@ class Session:
 
             data_to_send = json.dumps({Message.MESSAGE_INIT: {
                 'dialog_len': len(self._dialog_history),
-                'last_msg_id': self._dialog_history[-1]['msg_id'] if self._dialog_history else None
+                'last_msg_id': self._dialog_history[-1]['msg_id'] if self._dialog_history else None,
+                'pub_key': self._crypto.get_public_key()
+                
             }}).encode()
             # Отправляем Init
             self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
@@ -85,9 +89,12 @@ class Session:
     def send(self, message: dict, is_resended: bool = False) -> None:
         self._logger.debug(f"Отправляю Send сообщение клиенту [{self._address}].")
 
+        ciphertext, iv = self._crypto.encrypt(json.dumps(message).encode())
+
         # Отправляем сообщения
         data_to_send = json.dumps({Message.MESSAGE_SEND_DATA: {
-            'data': message,
+            'data': ciphertext,
+            'iv': iv,
             'res_state': is_resended
         }}).encode()
         # Отправляем Send
@@ -96,12 +103,6 @@ class Session:
         self._logger.debug(f"Отправил Send сообщение клиенту [{self._address}] размером [{len(data_to_send)}].")
 
         self._temp_buffer_of_our_messages[message['msg_id']] = message
-
-    def _encode(self, data: str) -> str:
-        return data
-
-    def _decode(self, data: str) -> str:
-        return data
     
     def _load_dialog_history(self) -> None:
         self._logger.debug(f'Подключаюсь к базе данных и загружаю историю диалога с клиентом [{self._address}].')
@@ -226,9 +227,12 @@ class Session:
             def _send_sync(messages_num):
                 self._logger.debug(f"Отправляю Sync сообщение клиенту [{self._address}].")
 
+                ciphertext, iv = self._crypto.encrypt(str(messages_num).encode())
+
                 # Отправляем сообщения
                 data_to_send = json.dumps({Message.MESSAGE_SYNC_DATA: {
-                    'data': messages_num,
+                    'data': ciphertext,
+                    'iv': iv
                 }}).encode()
                 # Отправляем Send
                 self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
@@ -311,9 +315,12 @@ class Session:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
                     self._logger.debug(f"Получил Init сообщение от клиента [{self._address}].")
 
+                    self._crypto.calculate_dh_secret(json_data[Message.MESSAGE_INIT]['pub_key'])
+
                     data_to_send = json.dumps({Message.MESSAGE_ACK: {
                         'dialog_len': len(self._dialog_history),
-                        'last_msg_id': self._dialog_history[-1]['msg_id'] if self._dialog_history else None
+                        'last_msg_id': self._dialog_history[-1]['msg_id'] if self._dialog_history else None,
+                        'pub_key': self._crypto.get_public_key()
                     }}).encode()
                     # Отправляем ответ на Init
                     self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
@@ -339,6 +346,8 @@ class Session:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
                     self._logger.debug(f"Получил Ack сообщение от клиента [{self._address}].")
                     
+                    self._crypto.calculate_dh_secret(json_data[Message.MESSAGE_ACK]['pub_key'])
+
                     self._event.data.put({Event.EVENT_CONNECT: {
                         'addr': self._address,
                         'session_id': self._session_id,
@@ -374,11 +383,16 @@ class Session:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
                     self._logger.debug(f"Получил Send сообщение от клиента [{self._address}].")
                     
-                    message_id = json_data[Message.MESSAGE_SEND_DATA]['data']['msg_id']
+                    ciphertext = json_data[Message.MESSAGE_SEND_DATA]['data']
+                    iv = json_data[Message.MESSAGE_SEND_DATA]['iv']
+
+                    message_data = json.loads(self._crypto.decrypt(ciphertext, iv))
+
+                    message_id = message_data['msg_id']
                     is_resended = json_data[Message.MESSAGE_SEND_DATA]['res_state']
 
-                    json_data[Message.MESSAGE_SEND_DATA]['data']['msg_id'] = message_id.replace('m', 'o') if 'm' in message_id else message_id.replace('o', 'm')
-                    new_message_id = json_data[Message.MESSAGE_SEND_DATA]['data']['msg_id']
+                    message_data['msg_id'] = message_id.replace('m', 'o') if 'm' in message_id else message_id.replace('o', 'm')
+                    new_message_id = message_data['msg_id']
 
                     already_exist = False
                     if is_resended:
@@ -391,17 +405,19 @@ class Session:
                         # Пулим в ивент для обновления истории сообщений
                         self._event.data.put({Event.EVENT_ADD_RECV_DATA: {
                             'addr': self._address,
-                            'data': json_data[Message.MESSAGE_SEND_DATA]['data'],
+                            'data': message_data,
                             'res_state': is_resended
                         }})
                         self._event.set()
 
                         # Сохраняем сообщение в бд
-                        self._save_message_in_db([json_data[Message.MESSAGE_SEND_DATA]['data']])
+                        self._save_message_in_db([message_data])
 
+                    ciphertext, iv = self._crypto.encrypt(message_id.encode())
                     # Отправляем идентификатор сообщения
                     data_to_send = json.dumps({Message.MESSAGE_RECV_DATA: {
-                        'data': message_id,
+                        'data': ciphertext,
+                        'iv': iv,
                         'res_state': is_resended
                     }}).encode()
                     # Отправляем Recv
@@ -413,44 +429,45 @@ class Session:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
                     self._logger.debug(f"Получил Recv сообщение от клиента [{self._address}].")
 
-                    message_id = json_data[Message.MESSAGE_RECV_DATA]['data']
+                    ciphertext = json_data[Message.MESSAGE_RECV_DATA]['data']
+                    iv = json_data[Message.MESSAGE_RECV_DATA]['iv']
+
+                    message_data = self._crypto.decrypt(ciphertext, iv)
+
                     is_resended = json_data[Message.MESSAGE_RECV_DATA]['res_state']
 
                     if not is_resended:
                         # Пулим в ивент для обновления истории сообщений
                         self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
                             'addr': self._address,
-                            'data': self._temp_buffer_of_our_messages[message_id],
+                            'data': self._temp_buffer_of_our_messages[message_data],
                             'res_state': is_resended
                         }})
                         self._event.set()
 
                         # Сохраняем сообщение в бд
-                        self._save_message_in_db([self._temp_buffer_of_our_messages[message_id]])
+                        self._save_message_in_db([self._temp_buffer_of_our_messages[message_data]])
 
-                    del self._temp_buffer_of_our_messages[message_id]
+                    del self._temp_buffer_of_our_messages[message_data]
 
             
                 elif Message.MESSAGE_SYNC_DATA in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
                     self._logger.debug(f"Получил Sync сообщение от клиента [{self._address}].")
 
-                    message_num = json_data[Message.MESSAGE_SYNC_DATA]['data']
+                    ciphertext = json_data[Message.MESSAGE_SYNC_DATA]['data']
+                    iv = json_data[Message.MESSAGE_SYNC_DATA]['iv']
 
-                    self._logger.debug(f"Начинаю отправлять последние [{message_num}] сообщений клиенту [{self._address}].")
+                    message_data = int(self._crypto.decrypt(ciphertext, iv))
+
+                    self._logger.debug(f"Начинаю отправлять последние [{message_data}] сообщений клиенту [{self._address}].")
                     # Переотправляем N месседжей из истории
-                    messages = self._dialog_history[-message_num:]
+                    messages = self._dialog_history[-message_data:]
                     for message in messages:
                         self.send(message, is_resended=True)
 
-                    self._logger.debug(f"Последние [{message_num}] сообщений клиенту [{self._address}] были отправлены.")
+                    self._logger.debug(f"Последние [{message_data}] сообщений клиенту [{self._address}] были отправлены.")
 
-                elif Message.MESSAGE_SYNC_SEND_DATA in json_data:
-                    pass
-
-            
-                elif Message.MESSAGE_SYNC_RECV_DATA in json_data:
-                    pass
 
             except socket.timeout as e:
                 self._logger.debug(f"Клиент не отвечает, закрываю соединение с [{self._address}].")
