@@ -87,6 +87,13 @@ class WinApp(tkinter.Tk):
                     break
                 
                 try:
+                    def show_message(msg):
+                        dialog = self._chats.get_dialog(self._active_dialogs[interlocutor_ip]['dialog_id'])
+                        exist = dialog.exist_message(msg)
+                        if not exist:
+                            dialog.recieve_message(msg)
+
+
                     if Event.EVENT_CONNECT in event_data:
                         empty_chat = True if not self._chats.size() else False
 
@@ -125,23 +132,12 @@ class WinApp(tkinter.Tk):
                         interlocutor_ip = event_data['addr'][0]
 
                         if interlocutor_ip in self._active_dialogs:
-                            threading.Thread(
-                                target=self._chats.get_dialog(self._active_dialogs[interlocutor_ip]['dialog_id']).recieve_message,
-                                args=(event_data['data'], ),
-                                daemon=True
-                            
-                            ).start()
+                            threading.Thread(target=show_message, args=(event_data['data'], ), daemon=True).start()
 
                     elif Event.EVENT_ADD_SEND_DATA in event_data:
                         event_data = event_data[Event.EVENT_ADD_SEND_DATA] 
                         interlocutor_ip = event_data['addr'][0]
                         is_resended = event_data['res_state']
-
-                        def show_message(msg):
-                            dialog = self._chats.get_dialog(self._active_dialogs[interlocutor_ip]['dialog_id'])
-                            exist = dialog.exist_message(msg)
-                            if not exist:
-                                dialog.recieve_message(msg)
 
                         if is_resended:
                             if interlocutor_ip in self._active_dialogs:

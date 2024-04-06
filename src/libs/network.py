@@ -317,10 +317,6 @@ class Session:
                     }}).encode()
                     # Отправляем ответ на Init
                     self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
-                    
-                    # Синхранизируем данные
-                    interlocutor_dialog_len = json_data[Message.MESSAGE_INIT]['dialog_len']
-                    self._sync_dialog_history(interlocutor_dialog_len, json_data[Message.MESSAGE_INIT]['last_msg_id'])
 
                     self._event.data.put({Event.EVENT_CONNECT: {
                         'addr': self._address,
@@ -330,15 +326,19 @@ class Session:
                     self._event.set()
 
                     self._logger.debug(f"Отправил Ack сообщение клиенту [{self._address}].")
+
+                    # Синхранизируем данные
+                    interlocutor_dialog_len = json_data[Message.MESSAGE_INIT]['dialog_len']
+                    threading.Thread(target=self._sync_dialog_history, args=(
+                        interlocutor_dialog_len,
+                        json_data[Message.MESSAGE_INIT]['last_msg_id']),
+                        daemon=True).start()
+                    
                 
                 elif Message.MESSAGE_ACK in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
                     self._logger.debug(f"Получил Ack сообщение от клиента [{self._address}].")
                     
-                    # Синхранизируем данные
-                    interlocutor_dialog_len = json_data[Message.MESSAGE_ACK]['dialog_len']
-                    self._sync_dialog_history(interlocutor_dialog_len, json_data[Message.MESSAGE_ACK]['last_msg_id'])
-
                     self._event.data.put({Event.EVENT_CONNECT: {
                         'addr': self._address,
                         'session_id': self._session_id,
@@ -347,6 +347,14 @@ class Session:
                     self._event.set()
 
                     ping_thread.start()
+
+                    # Синхранизируем данные
+                    interlocutor_dialog_len = json_data[Message.MESSAGE_ACK]['dialog_len']
+                    threading.Thread(target=self._sync_dialog_history, args=(
+                        interlocutor_dialog_len,
+                        json_data[Message.MESSAGE_ACK]['last_msg_id']),
+                        daemon=True).start()
+
 
                 elif Message.MESSAGE_PING in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
