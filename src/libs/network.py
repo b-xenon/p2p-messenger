@@ -135,7 +135,7 @@ class Session:
                     self._temp_buffer_of_our_messages[row[1]] = message
 
             if self._dialog_history:
-                self._dialog_history = sorted(self._dialog_history, key=lambda x: x[4])
+                self._dialog_history = sorted(self._dialog_history, key=lambda x: x['time'])
 
             self._logger.debug(f'Было загружено [{len(self._dialog_history)}] сообщения(-ий) для клиента [{self._address}] из истории.')
             self._logger.debug(f'Было загружено [{len(self._temp_buffer_of_our_messages)}] сообщения(-ий) для клиента [{self._address}], требующих повторной отправки.')
