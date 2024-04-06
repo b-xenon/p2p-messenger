@@ -150,7 +150,7 @@ class WinApp(tkinter.Tk):
                     elif Event.EVENT_CLOSE in event_data:
                         return
                 except KeyError as e:
-                    self._logger.error(f"Ошибка [{e}].")
+                    self._logger.error(f"Ошибка с доступом по ключу [{e}].")
 
     def _connect_to_another_client(self):
         another_client_ip = self._entry_another_client_ip_var.get() 
@@ -164,17 +164,21 @@ class WinApp(tkinter.Tk):
                                f" Ip-адрес должен быть в формате IPv4!")
             return
         
+        if another_client_ip == self._ip_address:
+            self._logger.error(f"Пока нельзя подключаться самому к себе!")
+            return
+
         if another_client_ip in self._active_dialogs:
             self._logger.debug(f"Диалог с клиентом {another_client_ip} уже открыт.")
             return
         
-        def _connect():
-            if another_client_ip not in self._active_dialogs:
-                self._active_dialogs[another_client_ip] = {}
-            self._active_dialogs[another_client_ip]['session_id'] = self._our_client.connect(another_client_ip)
+        # def _connect():
+        #     if another_client_ip not in self._active_dialogs:
+        #         self._active_dialogs[another_client_ip] = {}
+        #     self._active_dialogs[another_client_ip]['session_id'] = self._our_client.connect(another_client_ip)
 
         # установаем соединение
-        threading.Thread(target=_connect, daemon=True).start()
+        threading.Thread(target=self._our_client.connect, args=(another_client_ip, ), daemon=True).start()
         
 
     def _is_ipv4(self, addr: str) -> bool:

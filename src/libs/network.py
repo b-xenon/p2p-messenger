@@ -104,19 +104,21 @@ class Session:
         return data
     
     def _load_dialog_history(self) -> None:
-        self._logger.debug(f'Подлючаюсь к базе данных и загружаю историю диалога с клиентом [{self._address}].')
+        self._logger.debug(f'Подключаюсь к базе данных и загружаю историю диалога с клиентом [{self._address}].')
         
         try:
+            table_name = f"table_{self._address[0].replace('.', '_').strip()}"
             # Подключение к базе данных (или её создание, если она не существует)
             conn = sqlite3.connect(config.paths['files']['db'])
             cur = conn.cursor()
 
             # Создание таблицы
-            cur.execute(f'CREATE TABLE IF NOT EXISTS {self._address[0]}'
-                        f'(sync_state BOOLEAN, id TEXT, author TEXT, message TEXT, time TEXT)')
+            req = f'CREATE TABLE IF NOT EXISTS {table_name} (sync_state INTEGER, id TEXT, author TEXT, message TEXT, time TEXT)'
+            cur.execute(req)
 
             # Выполнение запроса на выборку всех записей из таблицы
-            cur.execute(f"SELECT * FROM {self._address[0]}")
+            req = f"SELECT * FROM {table_name}"
+            cur.execute(req)
             
             # Получение всех результатов
             all_rows = cur.fetchall()
@@ -135,7 +137,8 @@ class Session:
             self._logger.debug(f'Было загружено [{len(self._dialog_history)}] сообщения(-ий) для клиента [{self._address}] из истории.')
             self._logger.debug(f'Было загружено [{len(self._temp_buffer_of_our_messages)}] сообщения(-ий) для клиента [{self._address}], требующих повторной отправки.')
 
-            cur.execute(f"DELETE FROM {self._address[0]} WHERE sync_state = ?", (False,))
+            req = f"DELETE FROM {table_name} WHERE sync_state = ?"
+            cur.execute(req, (False,))
 
             # Сохранение изменений и закрытие соединения с базой данных
             conn.commit()
@@ -154,11 +157,12 @@ class Session:
             self._dialog_history += messages
 
         try:
+            table_name = f"table_{self._address[0].replace('.', '_').strip()}"
             self._logger.debug(f"Добавляю [{len(_messages)}] сообщение(-ий) в базу данных для клиента [{self._address}].")
             conn = sqlite3.connect(config.paths['files']['db'])
             c = conn.cursor()
              # SQL-запрос для вставки данных
-            query = f"INSERT INTO {self._address[0]} (sync_state, id, author, message, time) VALUES (?, ?, ?, ?, ?)"
+            query = f"INSERT INTO {table_name} (sync_state, id, author, message, time) VALUES (?, ?, ?, ?, ?)"
             
             # Вставляем множество записей
             c.executemany(query, _messages)
@@ -470,20 +474,21 @@ class Session:
 
 
     def close(self):
-        self._session_is_active = False
-        self._socket.close()
+        if self._session_is_active:
+            self._session_is_active = False
+            self._socket.close()
 
-        self._event.data.put({Event.EVENT_DISCONNECT: self._address})
-        self._event.set()
+            self._event.data.put({Event.EVENT_DISCONNECT: self._address})
+            self._event.set()
 
-        self._save_message_in_db(list(self._temp_buffer_of_our_messages.values()), is_temp_buffer_elements=True)
+            self._save_message_in_db(list(self._temp_buffer_of_our_messages.values()), is_temp_buffer_elements=True)
 
-        try:
-            self._thread_client_handler.join()
-        except RuntimeError:
-            pass
+            try:
+                self._thread_client_handler.join()
+            except RuntimeError:
+                pass
 
-        self._logger.debug(f"Сессия для клиента [{self._address}] завершена.")
+            self._logger.debug(f"Сессия для клиента [{self._address}] завершена.")
 
 
 class Client:
