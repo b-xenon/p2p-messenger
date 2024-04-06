@@ -9,7 +9,7 @@ import re
 import config
 from libs.mylogger import MyLogger, MyLoggerType
 from libs.widgets import Chats
-from libs.network import Client, Event
+from libs.network import Client, Event, DHT_Client
 
 class WinApp(tkinter.Tk):
     def __init__(self, use_local_ip: bool = True) -> None:
@@ -23,6 +23,7 @@ class WinApp(tkinter.Tk):
         self._active_dialogs = {}
         self._inactive_dialogs = {}
         self._our_client = Client(self._logger)
+        self._dht = DHT_Client()
 
         self.title(f"Client {self._ip_address}")
         self.geometry('750x700')
@@ -46,9 +47,13 @@ class WinApp(tkinter.Tk):
         self._chats = Chats(self._frame_main, self._ip_address, lambda x: self._send_message_to_another_client(x))
         self._chats.pack(expand=True, fill='both', padx=10, pady=10)
 
+        threading.Thread(target=self._set_dht_data, daemon=True).start()
         threading.Thread(target=self._handle_dialog, daemon=True).start()
 
         self.protocol("WM_DELETE_WINDOW", self._prepare_to_close_program)
+
+    def _set_dht_data(self) -> None:
+        self._dht.set_data('client1', {'ip': self._ip_address})
 
     def _get_ip_address(self) -> str:
         ip_address = None
@@ -147,12 +152,17 @@ class WinApp(tkinter.Tk):
                     self._logger.error(f"Ошибка с доступом по ключу [{e}].")
 
     def _connect_to_another_client(self):
-        another_client_ip = self._entry_another_client_ip_var.get() 
+        another_client = self._entry_another_client_ip_var.get() 
         
-        if not another_client_ip:
-            self._logger.error("Перед подключением необходимо ввести ip-адрес устройства!")
+        if not another_client:
+            self._logger.error("Перед подключением необходимо ввести ключ другого устройства!")
             return
         
+        try:
+            another_client_ip = self._dht.get_data(another_client)
+        except OSError as e:
+            self._logger.error(f'Не удалось получить ip клиента [{another_client}]. Ошибка [{e}].')
+
         if not self._is_ipv4(another_client_ip):
             self._logger.error(f"Введен некорректный ip-адрес [{another_client_ip}]!"
                                f" Ip-адрес должен быть в формате IPv4!")
@@ -207,22 +217,3 @@ class WinApp(tkinter.Tk):
 
     def run(self) -> None:
         self.mainloop()
-
-
-# import asyncio
-# import sys
-
-# from kademlia.network import Server
-
-# async def run():
-#     server = Server()
-#     await server.listen(8469)
-
-#     bootstrap_node = ('192.168.31.169', 8468)
-#     await server.bootstrap([bootstrap_node])
-
-#     await server.set("aboba", "Hello world!")
-
-#     server.stop()
-
-# asyncio.run(run())

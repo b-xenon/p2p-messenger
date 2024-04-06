@@ -5,6 +5,9 @@ import queue
 import threading
 import sqlite3
 
+import asyncio
+from kademlia.network import Server
+
 from libs.cryptography import Encrypter
 from logging import Logger
 
@@ -34,6 +37,40 @@ class Event(threading.Event):
     def __init__(self) -> None:
         super().__init__()
         self.data = queue.Queue()
+
+class DHT_Client:
+    def __init__(self) -> None:
+        pass
+
+    def set_data(self, key: str, data: dict) -> None:
+        asyncio.run(self._set_data(key, data))
+    
+    async def _set_data(self, key: str, data: dict) -> None:
+        server = Server()
+        await server.listen(config.PORT_DHT - 1)
+
+        bootstrap_node = (config.IP_DHT, config.PORT_DHT)
+        await server.bootstrap([bootstrap_node])
+
+        await server.set(key, json.dumps(data))
+
+        server.stop()
+
+    def get_data(self, key: str) -> None:
+        asyncio.run(self._get_data(key))
+    
+    async def _get_data(self, key: str) -> dict:
+        server = Server()
+        await server.listen(config.PORT_DHT - 1)
+
+        bootstrap_node = (config.IP_DHT, config.PORT_DHT)
+        await server.bootstrap([bootstrap_node])
+
+        data = await server.get(key)
+        
+        server.stop()
+        return json.loads(data)
+
 
 class Session:
     session_counter = 0
