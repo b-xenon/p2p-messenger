@@ -40,7 +40,7 @@ class Dialog(ttk.Frame):
         self._text_dialog.config(yscrollcommand=self._scrollbar.set)
 
         # Определяем тег для жирного шрифта
-        self._text_dialog.tag_configure("bold", font=('Arial', 10, 'bold'))
+        self._text_dialog.tag_configure("bold", font=('Arial', 8, 'bold'))
 
         # Размещение виджетов в окне
         self._text_dialog.pack(fill='both', expand=True, padx=5, pady=5)
@@ -83,7 +83,7 @@ class Dialog(ttk.Frame):
                     return
 
             formatted_message = f"[{recived_message_time.strftime('%d.%m.%Y - %H:%M:%S')}] {message['author']}: {message['msg']}\n"
-            self._add_message_to_dialog(formatted_message, len(formatted_message.split(':')[0]) + 1)
+            self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
 
             self._messages.append(message)
 
