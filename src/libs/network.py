@@ -116,7 +116,7 @@ class Session:
                         f'(sync_state BOOLEAN, id TEXT, author TEXT, message TEXT, time TEXT)')
 
             # Выполнение запроса на выборку всех записей из таблицы
-            cur.execute("SELECT * FROM messages")
+            cur.execute(f"SELECT * FROM {self._address[0]}")
             
             # Получение всех результатов
             all_rows = cur.fetchall()
@@ -135,7 +135,7 @@ class Session:
             self._logger.debug(f'Было загружено [{len(self._dialog_history)}] сообщения(-ий) для клиента [{self._address}] из истории.')
             self._logger.debug(f'Было загружено [{len(self._temp_buffer_of_our_messages)}] сообщения(-ий) для клиента [{self._address}], требующих повторной отправки.')
 
-            cur.execute("DELETE FROM messages WHERE sync_state = ?", (False,))
+            cur.execute(f"DELETE FROM {self._address[0]} WHERE sync_state = ?", (False,))
 
             # Сохранение изменений и закрытие соединения с базой данных
             conn.commit()
@@ -158,7 +158,7 @@ class Session:
             conn = sqlite3.connect(config.paths['files']['db'])
             c = conn.cursor()
              # SQL-запрос для вставки данных
-            query = "INSERT INTO messages (sync_state, id, author, message, time) VALUES (?, ?, ?, ?, ?)"
+            query = f"INSERT INTO {self._address[0]} (sync_state, id, author, message, time) VALUES (?, ?, ?, ?, ?)"
             
             # Вставляем множество записей
             c.executemany(query, _messages)
@@ -305,7 +305,7 @@ class Session:
                     self._logger.debug(f"Получил Init сообщение от клиента [{self._address}].")
 
                     data_to_send = json.dumps({Message.MESSAGE_ACK: {
-                        'dialog_size': len(self._dialog_history),
+                        'dialog_len': len(self._dialog_history),
                         'last_msg_id': self._dialog_history[-1]['msg_id'] if self._dialog_history else None
                     }}).encode()
                     # Отправляем ответ на Init
