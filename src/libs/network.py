@@ -134,6 +134,9 @@ class Session:
                 else:
                     self._temp_buffer_of_our_messages[row[1]] = message
 
+            if self._dialog_history:
+                self._dialog_history = sorted(self._dialog_history, key=lambda x: x[4])
+
             self._logger.debug(f'Было загружено [{len(self._dialog_history)}] сообщения(-ий) для клиента [{self._address}] из истории.')
             self._logger.debug(f'Было загружено [{len(self._temp_buffer_of_our_messages)}] сообщения(-ий) для клиента [{self._address}], требующих повторной отправки.')
 
@@ -404,16 +407,17 @@ class Session:
                     message_id = json_data[Message.MESSAGE_RECV_DATA]['data']
                     is_resended = json_data[Message.MESSAGE_RECV_DATA]['res_state']
 
-                    # Пулим в ивент для обновления истории сообщений
-                    self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
-                        'addr': self._address,
-                        'data': self._temp_buffer_of_our_messages[message_id],
-                        'res_state': is_resended
-                    }})
-                    self._event.set()
+                    if not is_resended:
+                        # Пулим в ивент для обновления истории сообщений
+                        self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
+                            'addr': self._address,
+                            'data': self._temp_buffer_of_our_messages[message_id],
+                            'res_state': is_resended
+                        }})
+                        self._event.set()
 
-                    # Сохраняем сообщение в бд
-                    self._save_message_in_db([self._temp_buffer_of_our_messages[message_id]])
+                        # Сохраняем сообщение в бд
+                        self._save_message_in_db([self._temp_buffer_of_our_messages[message_id]])
 
                     del self._temp_buffer_of_our_messages[message_id]
 
