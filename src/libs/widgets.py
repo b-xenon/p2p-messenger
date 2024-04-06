@@ -116,6 +116,7 @@ class Dialog(ttk.Frame):
 
             # Очищаем Text widget
             self._text_input_message.delete("1.0", tk.END)
+            self._update_progress()
         
             self._messages.append({
                 'author': self._username,
@@ -209,7 +210,6 @@ class Dialog(ttk.Frame):
 
         # Прокрутка к последней добавленной строке
         self._text_dialog.see(tk.END)
-        self._update_progress()
 
     def _generate_random_name(self) -> str:
         # Строка со всеми буквами и цифрами
