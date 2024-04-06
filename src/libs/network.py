@@ -142,7 +142,10 @@ class Session:
                     # Отправляем ответ на Init
                     self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
                     
-                    self._event.data.put({Event.EVENT_CONNECT: self._address})
+                    self._event.data.put({Event.EVENT_CONNECT: {
+                        'addr': self._address,
+                        'session_id': self._session_id
+                    }})
                     self._event.set()
 
                     self._logger.debug(f"Отправил Ack сообщение клиенту [{self._address}].")
@@ -151,7 +154,10 @@ class Session:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
                     self._logger.debug(f"Получил Ack сообщение от клиента [{self._address}].")
 
-                    self._event.data.put({Event.EVENT_CONNECT: self._address})
+                    self._event.data.put({Event.EVENT_CONNECT: {
+                        'addr': self._address,
+                        'session_id': self._session_id
+                    }})
                     self._event.set()
 
                     ping_thread.start()

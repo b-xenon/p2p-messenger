@@ -90,28 +90,43 @@ class WinApp(tkinter.Tk):
                     if Event.EVENT_CONNECT in event_data:
                         empty_chat = True if not self._chats.size() else False
 
-                        if event_data[Event.EVENT_CONNECT][0] in self._inactive_dialogs:
-                            self._chats.load_dialog(self._inactive_dialogs[event_data[Event.EVENT_CONNECT][0]])
-                            self._active_dialogs[event_data[Event.EVENT_CONNECT][0]]['dialog_id'] = self._inactive_dialogs[event_data[Event.EVENT_CONNECT][0]]
-                            del self._inactive_dialogs[event_data[Event.EVENT_CONNECT][0]]
+                        event_data = event_data[Event.EVENT_CONNECT] 
+                        interlocutor_ip = event_data['addr'][0]
+
+                        if interlocutor_ip in self._inactive_dialogs:
+                            self._chats.load_dialog(self._inactive_dialogs[interlocutor_ip])
+                            
+                            self._active_dialogs[interlocutor_ip] = {}
+                            self._active_dialogs[interlocutor_ip]['session_id'] = event_data['session_id']
+                            self._active_dialogs[interlocutor_ip]['dialog_id'] = self._inactive_dialogs[interlocutor_ip]
+                            
+                            del self._inactive_dialogs[interlocutor_ip]
                         else:
-                            self._active_dialogs[event_data[Event.EVENT_CONNECT][0]]['dialog_id'] = self._chats.add_dialog(event_data[Event.EVENT_CONNECT][0], event_data[Event.EVENT_CONNECT][0])
+                            self._active_dialogs[interlocutor_ip] = {}
+                            self._active_dialogs[interlocutor_ip]['session_id'] = event_data['session_id']
+                            self._active_dialogs[interlocutor_ip]['dialog_id'] = self._chats.add_dialog(interlocutor_ip, interlocutor_ip)
                     
                         if empty_chat:
                             self._chats.pack(expand=True, fill='both', padx=10, pady=10)
 
                     elif Event.EVENT_DISCONNECT in event_data:
+                        event_data = event_data[Event.EVENT_DISCONNECT] 
+                        interlocutor_ip = event_data[0]
+
                         # self._chats.hide_dialog(self._active_dialogs[event_data[Event.EVENT_CONNECT][0]])
-                        if event_data[Event.EVENT_DISCONNECT][0] in self._active_dialogs:
-                            self._chats.inactivate_dialog(self._active_dialogs[event_data[Event.EVENT_DISCONNECT][0]]['dialog_id'])
-                            self._inactive_dialogs[event_data[Event.EVENT_DISCONNECT][0]] = self._active_dialogs[event_data[Event.EVENT_DISCONNECT][0]]['dialog_id']
-                            del self._active_dialogs[event_data[Event.EVENT_DISCONNECT][0]]
+                        if interlocutor_ip in self._active_dialogs:
+                            self._chats.inactivate_dialog(self._active_dialogs[interlocutor_ip]['dialog_id'])
+                            self._inactive_dialogs[interlocutor_ip] = self._active_dialogs[interlocutor_ip]['dialog_id']
+                            del self._active_dialogs[interlocutor_ip]
 
                     elif Event.EVENT_ADD_RECV_DATA in event_data:
-                        if event_data[Event.EVENT_ADD_RECV_DATA]['addr'][0] in self._active_dialogs:
+                        event_data = event_data[Event.EVENT_ADD_RECV_DATA] 
+                        interlocutor_ip = event_data['addr'][0]
+
+                        if interlocutor_ip in self._active_dialogs:
                             threading.Thread(
-                                target=self._chats.get_dialog(self._active_dialogs[event_data[Event.EVENT_ADD_RECV_DATA]['addr'][0]]['dialog_id']).recieve_message,
-                                args=(event_data[Event.EVENT_ADD_RECV_DATA]['data'], ),
+                                target=self._chats.get_dialog(self._active_dialogs[interlocutor_ip]['dialog_id']).recieve_message,
+                                args=(event_data['data'], ),
                                 daemon=True
                             
                             ).start()
