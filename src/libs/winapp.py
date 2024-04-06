@@ -32,7 +32,7 @@ class WinApp(tkinter.Tk):
         self._frame_main.pack(expand=True, fill='both')
 
         self._frame_connect_to_another_client = ttk.Frame(self._frame_main)
-        self._frame_connect_to_another_client.pack(expand=True, fill='both')
+        self._frame_connect_to_another_client.pack()
 
         self._entry_another_client_ip_var = tkinter.StringVar()
         self._entry_another_client_ip = ttk.Entry(self._frame_connect_to_another_client, width=30,
@@ -44,6 +44,7 @@ class WinApp(tkinter.Tk):
         self._button_connect_to_another_client.pack(padx=10, pady=10)
         
         self._chats = Chats(self._frame_main, self._ip_address, lambda x: self._send_message_to_another_client(x))
+        self._chats.pack(expand=True, fill='both', padx=10, pady=10)
 
         threading.Thread(target=self._handle_dialog, daemon=True).start()
 
@@ -113,9 +114,6 @@ class WinApp(tkinter.Tk):
                             self._active_dialogs[interlocutor_ip] = {}
                             self._active_dialogs[interlocutor_ip]['session_id'] = event_data['session_id']
                             self._active_dialogs[interlocutor_ip]['dialog_id'] = self._chats.add_dialog(interlocutor_ip, interlocutor_ip, data)
-                    
-                        if empty_chat:
-                            self._chats.pack(expand=True, fill='both', padx=10, pady=10)
 
                     elif Event.EVENT_DISCONNECT in event_data:
                         event_data = event_data[Event.EVENT_DISCONNECT] 

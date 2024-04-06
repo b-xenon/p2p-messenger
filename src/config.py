@@ -11,6 +11,9 @@ PING_INTERVAL = 5
 PING_TIMEOUT = 10
 # -------------
 
+# ---Widgets---
+MAX_TEXT_SYMBOLS_NUMBER = 5000
+# -------------
 
 # ----Pathes----
 paths = {'stuff': 'stuff'}

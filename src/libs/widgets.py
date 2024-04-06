@@ -7,6 +7,8 @@ import string
 import pytz
 from datetime import datetime
 
+from config import MAX_TEXT_SYMBOLS_NUMBER
+
 class Dialog(ttk.Frame):
     objects_counter = 0
 
@@ -29,23 +31,78 @@ class Dialog(ttk.Frame):
         self._message_id_counter = 0
 
         # Создание виджетов Text и Button
-        self._text_dialog = tk.Text(self, state='disabled')
-        self._text_input_message = tk.Text(self, height=4)
+        self._frame_dialog = ttk.Frame(self)
+        self._text_dialog = tk.Text(self._frame_dialog, state='disabled', height=20)
+        self._scrollbar = tk.Scrollbar(self._frame_dialog, command=self._text_dialog.yview)
+        
+        self._frame_input = ttk.Frame(self)
+        self._text_input_message = tk.Text(self._frame_input, height=4)
+        self._progressbar = ttk.Progressbar(self._frame_input, mode='determinate', maximum=MAX_TEXT_SYMBOLS_NUMBER, value=0)
+
         self._button_send_input_message = ttk.Button(self, text="Отправить", command=self.send_message)
         
-        self._scrollbar = tk.Scrollbar(self, command=self._text_dialog.yview)
-        self._scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # Настраиваем виджет Text для работы со Scrollbar
-        self._text_dialog.config(yscrollcommand=self._scrollbar.set)
-
         # Определяем тег для жирного шрифта
         self._text_dialog.tag_configure("bold", font=('Arial', 8, 'bold'))
 
         # Размещение виджетов в окне
-        self._text_dialog.pack(fill='both', expand=True, padx=5, pady=5)
+        self._frame_dialog.pack(fill='both', expand=True)
+        self._text_dialog.pack(side=tk.LEFT, fill='both', expand=True, padx=5, pady=5)
+        self._scrollbar.pack(side=tk.LEFT, fill=tk.Y)
+
+        self._frame_input.pack(fill='both', expand=True)
         self._text_input_message.pack(fill='x', padx=5, pady=5)
-        self._button_send_input_message.pack(padx=10, pady=10)
+        self._progressbar.pack(fill='x', padx=5)
+
+        self._button_send_input_message.pack(fill='both', expand=True, padx=5)
+
+        # Настраиваем виджет Text для работы со Scrollbar
+        self._text_dialog.config(yscrollcommand=self._scrollbar.set)
+
+
+        self._text_input_message.bind('<Key>', self._check_limit)
+        self._text_input_message.bind('<Control-v>', self._handle_paste)
+        self._text_input_message.bind('<KeyRelease>', self._update_progress)
+
+    def _check_limit(self, event):
+        # Получаем текущее содержимое виджета
+        current_text = self._text_input_message.get('1.0', 'end-1c')
+
+        # Разрешаем нажатие Backspace, Delete, стрелок, и пропускаем управляющие символы и события без символов (например, Shift)
+        if event.keysym in ('BackSpace', 'Delete', 'Left', 'Right', 'Up', 'Down') or event.char in ('\x08', '\x7f') or not event.char:
+            return
+
+        # Проверяем длину текста с учетом возможного нового символа
+        if len(current_text) >= MAX_TEXT_SYMBOLS_NUMBER:
+            return 'break'
+
+    def _handle_paste(self, event):
+        try:
+            clipboard_text = self._text_input_message.clipboard_get()
+        except tk.TclError:
+            return 'break'  # Если в буфере обмена нет текста
+        
+        current_text = self._text_input_message.get('1.0', 'end-1c')
+        selection = self._text_input_message.tag_ranges(tk.SEL)
+        if selection:
+            selected_text = self._text_input_message.get(*selection)
+            # Рассчитываем длину текста после возможной вставки с учетом замены выделенного текста
+            current_length = len(current_text) - len(selected_text)
+        else:
+            current_length = len(current_text)
+        
+        max_paste_length = MAX_TEXT_SYMBOLS_NUMBER - current_length
+        paste_text = clipboard_text[:max_paste_length]  # Обрезаем текст до максимально допустимой длины
+        
+        if selection:
+            self._text_input_message.delete(*selection)  # Удаляем выделенный текст, если таковой имеется
+        
+        self._text_input_message.insert(tk.INSERT, paste_text)
+        return 'break'  # Предотвращаем дальнейшую обработку события (вставку)
+
+    def _update_progress(self, event=None):
+        current_text_length = len(self._text_input_message.get('1.0', 'end-1c'))
+        self._progressbar['value'] = current_text_length
+
 
     def send_message(self) -> None:
         # Получаем текст из Text widget
