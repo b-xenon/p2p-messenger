@@ -37,7 +37,7 @@ class Encrypter:
         # Использование HKDF для получения ключа фиксированного размера из общего секрета
         self._secret_key = HKDF(shared_secret_bytes, 16, b"", SHA256)
 
-    def encrypt(self, message: bytes) -> tuple[bytes, bytes]:
+    def encrypt(self, message: str) -> tuple[bytes, bytes]:
         # Шифрование данных
         cipher = AES.new(self._secret_key, AES.MODE_CBC)
         ct_bytes = cipher.encrypt(pad(message.encode(), AES.block_size))

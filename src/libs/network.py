@@ -89,7 +89,7 @@ class Session:
     def send(self, message: dict, is_resended: bool = False) -> None:
         self._logger.debug(f"Отправляю Send сообщение клиенту [{self._address}].")
 
-        ciphertext, iv = self._crypto.encrypt(json.dumps(message).encode())
+        ciphertext, iv = self._crypto.encrypt(json.dumps(message))
 
         # Отправляем сообщения
         data_to_send = json.dumps({Message.MESSAGE_SEND_DATA: {
@@ -227,7 +227,7 @@ class Session:
             def _send_sync(messages_num):
                 self._logger.debug(f"Отправляю Sync сообщение клиенту [{self._address}].")
 
-                ciphertext, iv = self._crypto.encrypt(str(messages_num).encode())
+                ciphertext, iv = self._crypto.encrypt(str(messages_num))
 
                 # Отправляем сообщения
                 data_to_send = json.dumps({Message.MESSAGE_SYNC_DATA: {
@@ -413,7 +413,7 @@ class Session:
                         # Сохраняем сообщение в бд
                         self._save_message_in_db([message_data])
 
-                    ciphertext, iv = self._crypto.encrypt(message_id.encode())
+                    ciphertext, iv = self._crypto.encrypt(message_id)
                     # Отправляем идентификатор сообщения
                     data_to_send = json.dumps({Message.MESSAGE_RECV_DATA: {
                         'data': ciphertext,
