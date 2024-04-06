@@ -9,7 +9,7 @@ import re
 import config
 from libs.mylogger import MyLogger, MyLoggerType
 from libs.widgets import Chats
-from libs.network import Client
+from libs.network import Client, Event
 
 class WinApp(tkinter.Tk):
     def __init__(self, use_local_ip: bool = True) -> None:
@@ -43,7 +43,7 @@ class WinApp(tkinter.Tk):
                                                              width=30, command=self._connect_to_another_client)
         self._button_connect_to_another_client.pack(padx=10, pady=10)
         
-        self._chats = Chats(self._frame_main, self._ip_address, lambda: self._send_message_to_another_client())
+        self._chats = Chats(self._frame_main, self._ip_address, lambda x: self._send_message_to_another_client(x))
 
         threading.Thread(target=self._handle_dialog, daemon=True).start()
 
@@ -87,27 +87,39 @@ class WinApp(tkinter.Tk):
                     break
                 
                 try:
-                    if config.EVENT_CONNECT in event_data:
+                    if Event.EVENT_CONNECT in event_data:
                         empty_chat = True if not self._chats.size() else False
 
-                        if event_data[config.EVENT_CONNECT][0] in self._inactive_dialogs:
-                            self._chats.load_dialog(self._inactive_dialogs[event_data[config.EVENT_CONNECT][0]])
-                            self._active_dialogs[event_data[config.EVENT_CONNECT][0]] = self._inactive_dialogs[event_data[config.EVENT_CONNECT][0]]
-                            del self._inactive_dialogs[event_data[config.EVENT_CONNECT][0]]
+                        if event_data[Event.EVENT_CONNECT][0] in self._inactive_dialogs:
+                            self._chats.load_dialog(self._inactive_dialogs[event_data[Event.EVENT_CONNECT][0]])
+                            self._active_dialogs[event_data[Event.EVENT_CONNECT][0]]['dialog_id'] = self._inactive_dialogs[event_data[Event.EVENT_CONNECT][0]]
+                            del self._inactive_dialogs[event_data[Event.EVENT_CONNECT][0]]
                         else:
-                            self._active_dialogs[event_data[config.EVENT_CONNECT][0]] = self._chats.add_dialog(event_data[config.EVENT_CONNECT][0])
+                            self._active_dialogs[event_data[Event.EVENT_CONNECT][0]]['dialog_id'] = self._chats.add_dialog(event_data[Event.EVENT_CONNECT][0], event_data[Event.EVENT_CONNECT][0])
                     
                         if empty_chat:
                             self._chats.pack(expand=True, fill='both', padx=10, pady=10)
 
-                    elif config.EVENT_DISCONNECT in event_data:
-                        # self._chats.hide_dialog(self._active_dialogs[event_data[config.EVENT_CONNECT][0]])
-                        if event_data[config.EVENT_DISCONNECT][0] in self._active_dialogs:
-                            self._chats.inactivate_dialog(self._active_dialogs[event_data[config.EVENT_DISCONNECT][0]])
-                            self._inactive_dialogs[event_data[config.EVENT_DISCONNECT][0]] = self._active_dialogs[event_data[config.EVENT_DISCONNECT][0]]
-                            del self._active_dialogs[event_data[config.EVENT_DISCONNECT][0]]
+                    elif Event.EVENT_DISCONNECT in event_data:
+                        # self._chats.hide_dialog(self._active_dialogs[event_data[Event.EVENT_CONNECT][0]])
+                        if event_data[Event.EVENT_DISCONNECT][0] in self._active_dialogs:
+                            self._chats.inactivate_dialog(self._active_dialogs[event_data[Event.EVENT_DISCONNECT][0]]['dialog_id'])
+                            self._inactive_dialogs[event_data[Event.EVENT_DISCONNECT][0]] = self._active_dialogs[event_data[Event.EVENT_DISCONNECT][0]]['dialog_id']
+                            del self._active_dialogs[event_data[Event.EVENT_DISCONNECT][0]]
 
-                    elif config.EVENT_CLOSE in event_data:
+                    elif Event.EVENT_ADD_RECV_DATA in event_data:
+                        if event_data[Event.EVENT_ADD_RECV_DATA]['addr'][0] in self._active_dialogs:
+                            threading.Thread(
+                                target=self._chats.get_dialog(self._active_dialogs[event_data[Event.EVENT_ADD_RECV_DATA]['addr'][0]]['dialog_id']).recieve_message,
+                                args=(event_data[Event.EVENT_ADD_RECV_DATA]['data'], ),
+                                daemon=True
+                            
+                            ).start()
+
+                    elif Event.EVENT_ADD_SEND_DATA in event_data:
+                        pass
+
+                    elif Event.EVENT_CLOSE in event_data:
                         return
                 except KeyError as e:
                     self._logger.error(f"Ошибка [{e}].")
@@ -128,8 +140,13 @@ class WinApp(tkinter.Tk):
             self._logger.debug(f"Диалог с клиентом {another_client_ip} уже открыт.")
             return
         
+        def _connect():
+            if another_client_ip not in self._active_dialogs:
+                self._active_dialogs[another_client_ip] = {}
+            self._active_dialogs[another_client_ip]['session_id'] = self._our_client.connect(another_client_ip)
+
         # установаем соединение
-        threading.Thread(target=self._our_client.connect, args=(another_client_ip,), daemon=True).start()
+        threading.Thread(target=_connect, daemon=True).start()
         
 
     def _is_ipv4(self, addr: str) -> bool:
@@ -141,8 +158,10 @@ class WinApp(tkinter.Tk):
             return all(0 <= int(part) <= 255 for part in parts)
         return False
     
-    def _send_message_to_another_client(self):
-        pass
+    def _send_message_to_another_client(self, message: dict):
+        self._our_client.get_session(
+            self._active_dialogs[self._chats.get_current_dialog().get_interlocutor_ip()]['session_id']
+        ).send(message)
 
 
     def _prepare_to_close_program(self) -> None:

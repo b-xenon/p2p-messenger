@@ -2,6 +2,7 @@ certifi==2024.2.2
 charset-normalizer==3.3.2
 idna==3.6
 kademlia==2.2.2
+pytz==2024.1
 requests==2.31.0
 rpcudp==5.0.0
 u-msgpack-python==2.8.0
