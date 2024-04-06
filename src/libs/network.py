@@ -370,11 +370,12 @@ class Session:
                     is_resended = json_data[Message.MESSAGE_SEND_DATA]['res_state']
 
                     json_data[Message.MESSAGE_SEND_DATA]['data']['msg_id'] = message_id.replace('m', 'o') if 'm' in message_id else message_id.replace('o', 'm')
-                    
+                    new_message_id = json_data[Message.MESSAGE_SEND_DATA]['data']['msg_id']
+
                     already_exist = False
                     if is_resended:
                         for msg in self._dialog_history:
-                            if message_id == msg['msg_id']:
+                            if new_message_id == msg['msg_id']:
                                 already_exist = True
                                 break
                     
