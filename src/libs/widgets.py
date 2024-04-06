@@ -55,7 +55,7 @@ class Dialog(ttk.Frame):
             current_time = datetime.now(self._moscow_tz)
 
             formatted_message = f"[{current_time.strftime('%d.%m.%Y - %H:%M:%S')}] {self._username}: {message}\n"
-            self._add_message_to_dialog(formatted_message, len(formatted_message.split(':')[0]) + 1)
+            self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
 
             # Очищаем Text widget
             self._text_input_message.delete("1.0", tk.END)
@@ -75,11 +75,12 @@ class Dialog(ttk.Frame):
     def recieve_message(self, message: dict) -> None:
         if message:
             recived_message_time = datetime.fromisoformat(message['time'])
-            last_my_message_time = datetime.fromisoformat(self._messages[-1]['time'])
+            if len(self._messages):
+                last_my_message_time = datetime.fromisoformat(self._messages[-1]['time'])
 
-            if recived_message_time < last_my_message_time:
-                self._restruct_dialog_messages(message)
-                return
+                if recived_message_time < last_my_message_time:
+                    self._restruct_dialog_messages(message)
+                    return
 
             formatted_message = f"[{recived_message_time.strftime('%d.%m.%Y - %H:%M:%S')}] {message['author']}: {message['msg']}\n"
             self._add_message_to_dialog(formatted_message, len(formatted_message.split(':')[0]) + 1)
