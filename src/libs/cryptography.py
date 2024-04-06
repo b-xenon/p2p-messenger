@@ -29,11 +29,11 @@ class Encrypter:
         """Вычисляет общий секрет с использованием ECDH."""
 
         peer_pub_key = ECC.import_key(peer_pub_key)
-        # Используем HKDF для генерации общего секретного ключа фиксированного размера
-        
-        shared_secret = self._private_key.pointQ * peer_pub_key.pointQ
-        # Преобразование общего секрета в байты
-        shared_secret_bytes = shared_secret.x.to_bytes()
+       
+        # Вычисляем общий секрет, умножая публичный ключ другой стороны на наш приватный ключ
+        shared_secret_point  = self._private_key.d * peer_pub_key.pointQ
+        # Преобразование координаты X общего секрета в байты
+        shared_secret_bytes = shared_secret_point.x.to_bytes(32, 'big')  # Для P-256 размер 32 байта
         # Использование HKDF для получения ключа фиксированного размера из общего секрета
         self._secret_key = HKDF(shared_secret_bytes, 16, b"", SHA256)
 
