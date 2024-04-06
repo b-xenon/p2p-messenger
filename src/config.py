@@ -18,6 +18,9 @@ paths = {
     'dirs': {
         'log_dht': f'{paths["stuff"]}/log/dht/',
         'log_client': f'{paths["stuff"]}/log/client/',
+    },
+    'files': {
+        'db': f'{paths["stuff"]}/history_chats.db'
     }
 }
 # --------------

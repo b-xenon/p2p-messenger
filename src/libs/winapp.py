@@ -92,6 +92,7 @@ class WinApp(tkinter.Tk):
 
                         event_data = event_data[Event.EVENT_CONNECT] 
                         interlocutor_ip = event_data['addr'][0]
+                        data = event_data['data']
 
                         if interlocutor_ip in self._inactive_dialogs:
                             self._chats.load_dialog(self._inactive_dialogs[interlocutor_ip])
@@ -104,7 +105,7 @@ class WinApp(tkinter.Tk):
                         else:
                             self._active_dialogs[interlocutor_ip] = {}
                             self._active_dialogs[interlocutor_ip]['session_id'] = event_data['session_id']
-                            self._active_dialogs[interlocutor_ip]['dialog_id'] = self._chats.add_dialog(interlocutor_ip, interlocutor_ip)
+                            self._active_dialogs[interlocutor_ip]['dialog_id'] = self._chats.add_dialog(interlocutor_ip, interlocutor_ip, data)
                     
                         if empty_chat:
                             self._chats.pack(expand=True, fill='both', padx=10, pady=10)
@@ -132,7 +133,19 @@ class WinApp(tkinter.Tk):
                             ).start()
 
                     elif Event.EVENT_ADD_SEND_DATA in event_data:
-                        pass
+                        event_data = event_data[Event.EVENT_ADD_RECV_DATA] 
+                        interlocutor_ip = event_data['addr'][0]
+                        is_resended = event_data['res_state']
+
+                        def show_message(msg):
+                            dialog = self._chats.get_dialog(self._active_dialogs[interlocutor_ip]['dialog_id'])
+                            exist = dialog.exist_message(msg)
+                            if not exist:
+                                dialog.recieve_message(msg)
+
+                        if is_resended:
+                            if interlocutor_ip in self._active_dialogs:
+                                threading.Thread(target=show_message, args=(event_data['data'], ), daemon=True).start()
 
                     elif Event.EVENT_CLOSE in event_data:
                         return

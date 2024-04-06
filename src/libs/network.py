@@ -3,6 +3,7 @@ import json
 import socket
 import queue
 import threading
+import sqlite3
 from logging import Logger
 
 import config
@@ -53,6 +54,8 @@ class Session:
 
         self._int_size_for_message_len = 4
 
+        self._load_dialog_history()
+
         self._thread_client_handler = threading.Thread(target=self._handle_client, daemon=True)
         self._thread_client_handler.start()
 
@@ -66,7 +69,8 @@ class Session:
             self._socket.connect(self._address)
 
             data_to_send = json.dumps({Message.MESSAGE_INIT: {
-                'data': 555
+                'dialog_len': len(self._dialog_history),
+                'last_msg_id': self._dialog_history[-1]['msg_id'] if self._dialog_history else None
             }}).encode()
             # Отправляем Init
             self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
@@ -78,15 +82,18 @@ class Session:
             self._logger.debug(f'Произошло закрытие сокета. Завершаю сессию.')
             return -1
 
-    def send(self, message: dict) -> None:
+    def send(self, message: dict, is_resended: bool = False) -> None:
         self._logger.debug(f"Отправляю Send сообщение клиенту [{self._address}].")
 
-        # Отправляем идентификатор сообщения
-        data_to_send = json.dumps({Message.MESSAGE_SEND_DATA: message}).encode()
+        # Отправляем сообщения
+        data_to_send = json.dumps({Message.MESSAGE_SEND_DATA: {
+            'data': message,
+            'res_state': is_resended
+        }}).encode()
         # Отправляем Send
         self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
 
-        self._logger.debug(f"Отправил SEND сообщение клиенту [{self._address}].")
+        self._logger.debug(f"Отправил Send сообщение клиенту [{self._address}].")
 
         self._temp_buffer_of_our_messages[message['msg_id']] = message
 
@@ -97,17 +104,178 @@ class Session:
         return data
     
     def _load_dialog_history(self) -> None:
-        pass
+        self._logger.debug(f'Подлючаюсь к базе данных и загружаю историю диалога с клиентом [{self._address}].')
+        
+        try:
+            # Подключение к базе данных (или её создание, если она не существует)
+            conn = sqlite3.connect(config.paths['files']['db'])
+            cur = conn.cursor()
 
-    def _save_message_in_db(self, message: dict) -> None:
-        pass
+            # Создание таблицы
+            cur.execute(f'CREATE TABLE IF NOT EXISTS {self._address[0]}'
+                        f'(sync_state BOOLEAN, id TEXT, author TEXT, message TEXT, time TEXT)')
+
+            # Выполнение запроса на выборку всех записей из таблицы
+            cur.execute("SELECT * FROM messages")
+            
+            # Получение всех результатов
+            all_rows = cur.fetchall()
+            for row in all_rows:
+                message = {
+                        'author': row[2],
+                        'msg': row[3],
+                        'msg_id': row[1],
+                        'time': row[4]
+                    }
+                if row[0] is True:
+                    self._dialog_history.append(message)
+                else:
+                    self._temp_buffer_of_our_messages[row[1]] = message
+
+            self._logger.debug(f'Было загружено [{len(self._dialog_history)}] сообщения(-ий) для клиента [{self._address}] из истории.')
+            self._logger.debug(f'Было загружено [{len(self._temp_buffer_of_our_messages)}] сообщения(-ий) для клиента [{self._address}], требующих повторной отправки.')
+
+            cur.execute("DELETE FROM messages WHERE sync_state = ?", (False,))
+
+            # Сохранение изменений и закрытие соединения с базой данных
+            conn.commit()
+        except sqlite3.Error as e:
+            self._logger.error(f'Не удалось подключиться к базе данных по пути [{config.paths["files"]["db"]}]. Ошибка [{e}].')
+        finally:
+            if conn:
+                conn.close()
+
+    def _save_message_in_db(self, messages: list[dict], is_temp_buffer_elements: bool = False) -> None:
+        _messages = []
+        for msg in messages:
+            _messages.append((not is_temp_buffer_elements, msg['msg_id'], msg['author'], msg['msg'], msg['time']))
+        
+        if not is_temp_buffer_elements:
+            self._dialog_history += messages
+
+        try:
+            self._logger.debug(f"Добавляю [{len(_messages)}] сообщение(-ий) в базу данных для клиента [{self._address}].")
+            conn = sqlite3.connect(config.paths['files']['db'])
+            c = conn.cursor()
+             # SQL-запрос для вставки данных
+            query = "INSERT INTO messages (sync_state, id, author, message, time) VALUES (?, ?, ?, ?, ?)"
+            
+            # Вставляем множество записей
+            c.executemany(query, _messages)
+
+             # Сохраняем изменения
+            conn.commit()
+            self._logger.debug(f"[{len(_messages)}] сообщение(-ий) успешно добавлено(-ы) в базу данных для клиента [{self._address}].")
+        except sqlite3.Error as e:
+            self._logger.error(f'Ошибка при добавлении данных в БД для клиента [{self._address}]. Ошибка [{e}].')
+        finally:
+            conn.close()
+
+    def _sync_dialog_history(self, interlocutor_dialog_len: int, interlocutor_last_message_id: str) -> None:
+        if interlocutor_last_message_id:
+            # Заменяем префиксы, обозначающие, чьи это сообщения (m-наши, o-его)
+            interlocutor_last_message_id = interlocutor_last_message_id.replace('m', 'o') if 'm' in interlocutor_last_message_id else interlocutor_last_message_id.replace('o', 'm')
+        
+        if interlocutor_dialog_len == len(self._dialog_history):
+            # Если у нас и у него не пустые истории
+            if len(self._dialog_history):                
+                # размеры историй одинаковы, но не нулевые, поэтому проверяем id последних сообщений
+                if interlocutor_last_message_id:
+                    # Если индексы не совпали, то нужно переоправить последние сообщения
+                    if self._dialog_history[-1]['msg_id'] != interlocutor_last_message_id:
+                        # Проверяем, сохранились ли данные меседжи в временном буфере
+                        if not self._temp_buffer_of_our_messages and interlocutor_last_message_id not in self._temp_buffer_of_our_messages:
+                            # Если нет, то отправляем последние сообщения, как новые
+                            self.send(self._dialog_history[-1])
+                            return
+                        
+                        # Иначе просто сохраняем сообщения из буфера в историю
+                        
+                        # Пулим в ивент для обновления истории сообщений
+                        self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
+                            'addr': self._address,
+                            'data': self._temp_buffer_of_our_messages[interlocutor_last_message_id],
+                            'res_state': True
+                        }})
+                        self._event.set()
+
+                        # Сохраняем сообщение в бд
+                        self._save_message_in_db([self._temp_buffer_of_our_messages[interlocutor_last_message_id]])
+
+                        del self._temp_buffer_of_our_messages[interlocutor_last_message_id]
+
+                    
+            # Проверяем, нужно ли переотправить сообщение
+            if not self._temp_buffer_of_our_messages:
+                return
+            # Переотправляем все месседжи во временном буфере
+            for message in self._temp_buffer_of_our_messages.values():
+                self.send(message, is_resended=True)
+        
+        # Для разных размеров историй
+        else:
+            delta_dialog_len = len(self._dialog_history) - interlocutor_dialog_len
+
+            def _send_sync(messages_num):
+                self._logger.debug(f"Отправляю Sync сообщение клиенту [{self._address}].")
+
+                # Отправляем сообщения
+                data_to_send = json.dumps({Message.MESSAGE_SYNC_DATA: {
+                    'data': messages_num,
+                }}).encode()
+                # Отправляем Send
+                self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
+
+                self._logger.debug(f"Отправил Sync сообщение клиенту [{self._address}].")
+                
+            # Если у нас меньше (мы отправляли - он принимал)
+            if delta_dialog_len < 0:
+                # Проверяем наш буфер
+                if not self._temp_buffer_of_our_messages:
+                    # То отправляем ему сообщение о вытягивании данных
+                    _send_sync(abs(delta_dialog_len))
+                    return
+
+                # Иначе пишем данные из буфера в историю
+                messages = []
+                buf = self._temp_buffer_of_our_messages.values()
+                size = min(abs(delta_dialog_len), len(self._temp_buffer_of_our_messages))
+                for i in range(size):
+                    # Пулим в ивент для обновления истории сообщений
+                    self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
+                        'addr': self._address,
+                        'data': buf[i],
+                        'res_state': True
+                    }})
+                    messages.append(buf[i])
+                self._event.set()
+
+                # Сохраняем сообщение в бд
+                self._save_message_in_db(messages)
+
+                for msg in messages:
+                    del self._temp_buffer_of_our_messages[msg['msg_id']]
+
+                # Проверяем осталась ли разница в историях
+                if len(self._dialog_history) < interlocutor_dialog_len:
+                    # То отправляем ему сообщение о вытягивании данных
+                    _send_sync(abs(len(self._dialog_history) - interlocutor_dialog_len))
+                
+                # Если остались данные в буфере, то отправляем их ему
+                if self._temp_buffer_of_our_messages:
+                    # Переотправляем все месседжи во временном буфере
+                    for message in self._temp_buffer_of_our_messages.values():
+                        self.send(message, is_resended=True)
+
+            # Если у нас больше (мы принимали - он отправлял)
+            elif delta_dialog_len > 0:
+                pass
 
     def _handle_client(self) -> None:
         # Использование метода settimeout(ping_timeout) для сокета client_socket в контексте 
         # TCP-соединений устанавливает таймаут на блокирующие операции сокета, такие как recv() и send().
         # Это значит, что операция будет ждать данных или возможности отправки данных в течение указанного времени
         # (ping_timeout), и если за это время не произойдет никаких действий, то операция завершится с исключением socket.timeout.
-        self._load_dialog_history()
         
         self._socket.settimeout(config.PING_TIMEOUT)
         self._logger.debug(f"Устанавливаю таймаут [{config.PING_TIMEOUT}] для клиента [{self._address}].")
@@ -137,14 +305,20 @@ class Session:
                     self._logger.debug(f"Получил Init сообщение от клиента [{self._address}].")
 
                     data_to_send = json.dumps({Message.MESSAGE_ACK: {
-                        'data': 123
+                        'dialog_size': len(self._dialog_history),
+                        'last_msg_id': self._dialog_history[-1]['msg_id'] if self._dialog_history else None
                     }}).encode()
                     # Отправляем ответ на Init
                     self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
                     
+                    # Синхранизируем данные
+                    interlocutor_dialog_len = json_data[Message.MESSAGE_INIT]['dialog_len']
+                    self._sync_dialog_history(interlocutor_dialog_len, json_data[Message.MESSAGE_INIT]['last_msg_id'])
+
                     self._event.data.put({Event.EVENT_CONNECT: {
                         'addr': self._address,
-                        'session_id': self._session_id
+                        'session_id': self._session_id,
+                        'data': self._dialog_history
                     }})
                     self._event.set()
 
@@ -153,10 +327,15 @@ class Session:
                 elif Message.MESSAGE_ACK in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
                     self._logger.debug(f"Получил Ack сообщение от клиента [{self._address}].")
+                    
+                    # Синхранизируем данные
+                    interlocutor_dialog_len = json_data[Message.MESSAGE_ACK]['dialog_len']
+                    self._sync_dialog_history(interlocutor_dialog_len, json_data[Message.MESSAGE_ACK]['last_msg_id'])
 
                     self._event.data.put({Event.EVENT_CONNECT: {
                         'addr': self._address,
-                        'session_id': self._session_id
+                        'session_id': self._session_id,
+                        'data': self._dialog_history
                     }})
                     self._event.set()
 
@@ -179,41 +358,60 @@ class Session:
                 elif Message.MESSAGE_SEND_DATA in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
                     self._logger.debug(f"Получил Send сообщение от клиента [{self._address}].")
+                    
+                    message_id = json_data[Message.MESSAGE_SEND_DATA]['data']['msg_id']
+                    is_resended = json_data[Message.MESSAGE_SEND_DATA]['res_state']
 
-                    json_data[Message.MESSAGE_SEND_DATA]['msg_id'].replace('m', 'o')
+                    json_data[Message.MESSAGE_SEND_DATA]['data']['msg_id'] = message_id.replace('m', 'o') if 'm' in message_id else message_id.replace('o', 'm')
+                    
+                    already_exist = False
+                    if is_resended:
+                        for msg in self._dialog_history:
+                            if message_id == msg['msg_id']:
+                                already_exist = True
+                                break
+                    
+                    if not already_exist:
+                        # Пулим в ивент для обновления истории сообщений
+                        self._event.data.put({Event.EVENT_ADD_RECV_DATA: {
+                            'addr': self._address,
+                            'data': json_data[Message.MESSAGE_SEND_DATA]['data'],
+                            'res_state': is_resended
+                        }})
+                        self._event.set()
 
-                    # Пулим в ивент для обновления истории сообщений
-                    self._event.data.put({Event.EVENT_ADD_RECV_DATA: {
-                        'addr': self._address,
-                        'data': json_data[Message.MESSAGE_SEND_DATA]
-                    }})
-                    self._event.set()
-
-                    # Сохраняем сообщение в бд
-                    self._save_message_in_db(json_data[Message.MESSAGE_SEND_DATA])
+                        # Сохраняем сообщение в бд
+                        self._save_message_in_db([json_data[Message.MESSAGE_SEND_DATA]['data']])
 
                     # Отправляем идентификатор сообщения
-                    data_to_send = json.dumps({Message.MESSAGE_RECV_DATA: json_data[Message.MESSAGE_SEND_DATA]['msg_id']}).encode()
+                    data_to_send = json.dumps({Message.MESSAGE_RECV_DATA: {
+                        'data': message_id,
+                        'res_state': is_resended
+                    }}).encode()
                     # Отправляем Recv
                     self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
 
-                    self._logger.debug(f"Отправил RECV сообщение клиенту [{self._address}].")
+                    self._logger.debug(f"Отправил Recv сообщение клиенту [{self._address}].")
 
                 elif Message.MESSAGE_RECV_DATA in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
-                    self._logger.debug(f"Получил RECV сообщение от клиента [{self._address}].")
+                    self._logger.debug(f"Получил Recv сообщение от клиента [{self._address}].")
+
+                    message_id = json_data[Message.MESSAGE_RECV_DATA]['data']
+                    is_resended = json_data[Message.MESSAGE_RECV_DATA]['res_state']
 
                     # Пулим в ивент для обновления истории сообщений
                     self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
                         'addr': self._address,
-                        'data': self._temp_buffer_of_our_messages[json_data[Message.MESSAGE_RECV_DATA]]
+                        'data': self._temp_buffer_of_our_messages[message_id],
+                        'res_state': is_resended
                     }})
                     self._event.set()
 
                     # Сохраняем сообщение в бд
-                    self._save_message_in_db(self._temp_buffer_of_our_messages[json_data[Message.MESSAGE_RECV_DATA]])
+                    self._save_message_in_db([self._temp_buffer_of_our_messages[message_id]])
 
-                    del self._temp_buffer_of_our_messages[json_data[Message.MESSAGE_RECV_DATA]]
+                    del self._temp_buffer_of_our_messages[message_id]
 
             
                 elif Message.MESSAGE_SYNC_DATA in json_data:
@@ -243,7 +441,6 @@ class Session:
             except OSError:
                 self._logger.debug(f'Произошло закрытие сокета. Завершаю сессию.')
                 self.close()
-
 
     def _send_ping(self) -> None:
         while self._session_is_active:
@@ -278,7 +475,9 @@ class Session:
 
         self._event.data.put({Event.EVENT_DISCONNECT: self._address})
         self._event.set()
-       
+
+        self._save_message_in_db(list(self._temp_buffer_of_our_messages.values()), is_temp_buffer_elements=True)
+
         try:
             self._thread_client_handler.join()
         except RuntimeError:

@@ -71,6 +71,12 @@ class Dialog(ttk.Frame):
             # Вызов пользовательской функции, если она задана
             if self._command:
                 self._command(self._messages[-1])
+    
+    def exist_message(self, message: dict) -> bool:
+        for msg in self._messages:
+            if msg['msg_id'] == message['msg_id']:
+                return True
+        return False
 
     def recieve_message(self, message: dict) -> None:
         if message:
@@ -86,6 +92,16 @@ class Dialog(ttk.Frame):
             self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
 
             self._messages.append(message)
+
+    def load_history(self, history: list[dict]):
+        if history:
+            for message in history:
+                message_time = datetime.fromisoformat(message['time'])
+
+                formatted_message = f"[{message_time.strftime('%d.%m.%Y - %H:%M:%S')}] {message['author']}: {message['msg']}\n"
+                self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
+
+                self._messages.append(message)
 
     def _restruct_dialog_messages(self, recv_message: dict) -> None:
         counter = 0
@@ -155,10 +171,12 @@ class Chats(ttk.Frame):
         self._notebook_chats = ttk.Notebook(self)
         self._notebook_chats.pack(expand=True, fill='both', padx=10, pady=10)
     
-    def add_dialog(self, dialog_name: str, interlocutor_ip: str) -> int:
+    def add_dialog(self, dialog_name: str, interlocutor_ip: str, dialog_history: list[dict]) -> int:
         # Создание новой вкладки с CustomWidget
         dlg = Dialog(self._notebook_chats, interlocutor_ip, username=self._username, dialog_name=dialog_name, command=self._command)
         self._dialogs[dlg.get_id()] = dlg
+
+        dlg.load_history(dialog_history)
 
         dlg.pack(expand=True, fill='both')
 
