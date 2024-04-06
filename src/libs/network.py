@@ -93,7 +93,7 @@ class Session:
         # Отправляем Send
         self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
 
-        self._logger.debug(f"Отправил Send сообщение клиенту [{self._address}].")
+        self._logger.debug(f"Отправил Send сообщение клиенту [{self._address}] размером [{len(data_to_send)}].")
 
         self._temp_buffer_of_our_messages[message['msg_id']] = message
 
@@ -444,7 +444,7 @@ class Session:
                 self.close()
 
             except json.decoder.JSONDecodeError as e:
-                self._logger.error(f'Ошибка при распознании данных. Данные: [{data}]')
+                self._logger.error(f'Ошибка при распознании данных. Размер данный [{data_size}]. Данные: [{data}]')
                 self._clear_socket_buffer()
                 self._logger.debug(f"Отчищаю буфер сокета для [{self._address}].")
 
@@ -491,7 +491,6 @@ class Session:
             self._event.data.put({Event.EVENT_DISCONNECT: self._address})
             self._event.set()
 
-            print(self._temp_buffer_of_our_messages.values())
             self._save_message_in_db(list(self._temp_buffer_of_our_messages.values()), is_temp_buffer_elements=True)
 
             try:

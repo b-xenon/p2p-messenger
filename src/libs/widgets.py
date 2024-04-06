@@ -81,6 +81,12 @@ class Dialog(ttk.Frame):
     def recieve_message(self, message: dict) -> None:
         if message:
             recived_message_time = datetime.fromisoformat(message['time'])
+
+            if 'm' in message['msg_id']:
+                c = int(message['msg_id'].replace('m', ''))
+                if self._message_id_counter < c:
+                    self._message_id_counter = c
+
             if len(self._messages):
                 last_my_message_time = datetime.fromisoformat(self._messages[-1]['time'])
 
@@ -95,13 +101,20 @@ class Dialog(ttk.Frame):
 
     def load_history(self, history: list[dict]):
         if history:
+            counter = self._message_id_counter
             for message in history:
                 message_time = datetime.fromisoformat(message['time'])
+
+                if 'm' in message['msg_id']:
+                    c = int(message['msg_id'].replace('m', ''))
+                    if counter < c:
+                        counter = c
 
                 formatted_message = f"[{message_time.strftime('%d.%m.%Y - %H:%M:%S')}] {message['author']}: {message['msg']}\n"
                 self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
 
                 self._messages.append(message)
+            self._message_id_counter = counter
 
     def _restruct_dialog_messages(self, recv_message: dict) -> None:
         counter = 0
