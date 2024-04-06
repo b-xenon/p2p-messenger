@@ -207,6 +207,8 @@ class Dialog(ttk.Frame):
         self._text_dialog.tag_add("bold", f"{next_line_number}.0", f"{next_line_number}.{date_and_author_len}")
         self._text_dialog.config(state='disabled')
 
+        # Прокрутка к последней добавленной строке
+        self._text_dialog.see(tk.END)
 
     def _generate_random_name(self) -> str:
         # Строка со всеми буквами и цифрами
