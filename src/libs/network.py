@@ -492,7 +492,7 @@ class Session:
                         self._event.data.put({Event.EVENT_FILE_WAS_ACCEPTED: {
                             'username': self._interlocutor_username,
                             'addr': self._address,
-                            'data': message_data
+                            'data': message_data['data']
                         }})
                         self._event.set()
             
