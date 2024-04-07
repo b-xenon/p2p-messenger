@@ -1,4 +1,6 @@
 /p2p-venv
-/stuff
+stuff/log
+stuff/history.db
+stuff/config.ini
 __pycache__/
 todo.txt

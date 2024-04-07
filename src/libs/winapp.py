@@ -392,6 +392,20 @@ class WinApp(tkinter.Tk):
         ).send(message)
 
 
+    def _create_config(self) -> None:
+        try:
+            config_filename = config.paths['files']['config']
+            with open(config_filename, 'w', encoding='utf-8') as config_file1:
+                data1 = {
+                    'default_theme': self._style_is_default_theme,
+                    'dark_theme': self._style_is_dark_theme,
+                    'logger_mode_debug': self._is_logger_mode_debug_var.get()
+                }
+                json.dump(data1, config_file1)
+                self._logger.debug('Конфиг был успешно создан.')
+        except IOError:
+            self._logger.error(f'Не удалось открыть файл [{config_filename}] для записи!')
+
     def _prepare_to_close_program(self) -> None:
         
         def __close_program():
@@ -399,6 +413,7 @@ class WinApp(tkinter.Tk):
             CustomMessageBox.show(self, 'Инфо', f"Подождите, идет завершение программы...", MessageType.INFO)
             self._our_client.dht.stop()
             self._our_client.close()
+            self._create_config()
             self.destroy()
 
         
