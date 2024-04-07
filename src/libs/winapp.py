@@ -4,6 +4,7 @@ from tkinter import ttk
 import socket
 import requests
 import threading
+import random
 
 import re
 import config
@@ -24,6 +25,7 @@ class WinApp(tkinter.Tk):
         self._inactive_dialogs = {}
         self._our_client = Client(self._logger)
         self._dht = DHT_Client()
+        self._dht_key = f'client{random.randint(0, 1000)}'
 
         self.title(f"Client {self._ip_address}")
         self.geometry('750x700')
@@ -53,7 +55,8 @@ class WinApp(tkinter.Tk):
         self.protocol("WM_DELETE_WINDOW", self._prepare_to_close_program)
 
     def _set_dht_data(self) -> None:
-        self._dht.set_data('client1', {'ip': self._ip_address})
+        self._logger.debug(f'Добавляю свой ip [{self._ip_address}] в DHT по ключу [{self._dht_key}].')
+        self._dht.set_data(self._dht_key, {'ip': self._ip_address})
 
     def _get_ip_address(self) -> str:
         ip_address = None
