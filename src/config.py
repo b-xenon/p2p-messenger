@@ -46,6 +46,7 @@ paths.update({
             'success_s': f'{paths["dirs"]["icons"]}/suc_32.ico',
             },
         'config': f'{paths["dirs"]["stuff"]}/config.ini',
+        'key': f'{paths["dirs"]["stuff"]}/key.key',
         'theme': {
             'dark': 'forest-dark',
             'light': 'forest-light'

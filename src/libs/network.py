@@ -153,7 +153,7 @@ class Session:
             cur = conn.cursor()
 
             # Создание таблицы
-            req = f'CREATE TABLE IF NOT EXISTS {table_name} (sync_state INTEGER, id TEXT, author TEXT, message TEXT, time TEXT)'
+            req = f'CREATE TABLE IF NOT EXISTS {table_name} (sync_state INTEGER, data BLOB)'
             cur.execute(req)
 
             # Выполнение запроса на выборку всех записей из таблицы
@@ -163,16 +163,17 @@ class Session:
             # Получение всех результатов
             all_rows = cur.fetchall()
             for row in all_rows:
+                decoded_row = json.loads(self._crypto.decode_data(row))
                 message = {
-                        'author': row[2],
-                        'msg': row[3],
-                        'msg_id': row[1],
-                        'time': row[4]
+                        'author': decoded_row[2],
+                        'msg': decoded_row[3],
+                        'msg_id': decoded_row[1],
+                        'time': decoded_row[4]
                     }
-                if int(row[0]):
+                if int(decoded_row[0]):
                     self._dialog_history.append(message)
                 else:
-                    self._temp_buffer_of_our_messages[row[1]] = message
+                    self._temp_buffer_of_our_messages[decoded_row[1]] = message
 
             if self._dialog_history:
                 self._dialog_history = sorted(self._dialog_history, key=lambda x: x['time'])
@@ -194,7 +195,7 @@ class Session:
     def _save_message_in_db(self, messages: list[dict], is_temp_buffer_elements: bool = False) -> None:
         _messages = []
         for msg in messages:
-            _messages.append((not is_temp_buffer_elements, msg['msg_id'], msg['author'], msg['msg'], msg['time']))
+            _messages.append((not is_temp_buffer_elements, self._crypto.encode_data(json.dumps(msg))))
         
         if not is_temp_buffer_elements:
             self._dialog_history += messages
@@ -205,7 +206,7 @@ class Session:
             conn = sqlite3.connect(config.paths['files']['history'])
             c = conn.cursor()
              # SQL-запрос для вставки данных
-            query = f"INSERT INTO {table_name} (sync_state, id, author, message, time) VALUES (?, ?, ?, ?, ?)"
+            query = f"INSERT INTO {table_name} (sync_state, data) VALUES (?, ?)"
             
             # Вставляем множество записей
             c.executemany(query, _messages)
