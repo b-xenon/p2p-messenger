@@ -249,8 +249,10 @@ class Dialog(ttk.Frame):
                         CustomMessageBox.show(self._master, 'Ошибка', f'Слишком большой файл! Максимальный размер [{MAX_FILE_SIZE}]!', MessageType.ERROR)
                         break
                 else:
-                    self._command({'data': {'raw_data': base64.b64encode(file_data).decode('utf-8'), 'filename': os.path.basename(f)}, 'type': MessageDataType.File})
-
+                    try:
+                        self._command({'data': {'raw_data': base64.b64encode(file_data).decode('utf-8'), 'filename': os.path.basename(f)}, 'type': MessageDataType.File})
+                    except Exception as e:
+                        pass
 
     def _change_color(self, *args):
         _style = ttk.Style()

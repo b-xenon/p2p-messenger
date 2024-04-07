@@ -534,6 +534,10 @@ class Session:
             except OSError:
                 self._logger.debug(f'Произошло закрытие сокета. Завершаю сессию.')
                 self.close()
+            
+            except Exception as e:
+                self._logger.debug(f'Произошла непредвиденная ошибка [{e}]. Завершаю сессию.')
+                self.close()
 
     def _send_ping(self) -> None:
         while self._session_is_active:

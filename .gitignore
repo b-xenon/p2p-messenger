@@ -3,6 +3,7 @@ stuff/log
 stuff/history.db
 stuff/config.ini
 stuff/key.key
+stuff/download
 
 __pycache__/
 
