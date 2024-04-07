@@ -69,7 +69,6 @@ class DHT_Client:
     def stop(self):
         try:
             self.server.stop()
-            self.loop.run_until_complete(self.loop.shutdown_asyncgens())  # Закрыть асинхронные генераторы
             self.loop.run_until_complete(asyncio.sleep(1))
             self.loop.close()
         except RuntimeError:
@@ -190,9 +189,6 @@ class Session:
         _messages = []
         for msg in messages:
             _messages.append((not is_temp_buffer_elements, self._crypto.encode_data(json.dumps(msg))))
-        
-        if not is_temp_buffer_elements:
-            self._dialog_history += messages
 
         try:
             table_name = f"table_{self._interlocutor_username}"

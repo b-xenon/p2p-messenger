@@ -287,7 +287,7 @@ class WinApp(tkinter.Tk):
                         data = event_data['data']
                         interlocutor_username = event_data['username']
 
-                        if interlocutor_ip in self._inactive_dialogs:
+                        if interlocutor_username in self._inactive_dialogs:
                             self._chats.load_dialog(self._inactive_dialogs[interlocutor_username])
                             
                             self._active_dialogs[interlocutor_username] = {}
@@ -340,7 +340,7 @@ class WinApp(tkinter.Tk):
         return True
 
     def _connect_to_another_client(self):
-        if not self._entry_dht_key_var.get():
+        if not self._entry_dht_key_var.get() or self._button_enter_dht_key['state'] == tkinter.NORMAL:
             self._logger.error("Перед подключением необходимо ввести свой ключ устройства!")
             CustomMessageBox.show(self, 'Ошибка', "Перед подключением необходимо ввести свой ключ устройства!", MessageType.ERROR)
             return
