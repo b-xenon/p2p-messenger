@@ -24,7 +24,7 @@ class WinApp(tkinter.Tk):
         self._inactive_dialogs = {}
         self._our_client = Client(self._logger)
         self._dht = DHT_Client()
-        self._dht_key = f'client{self._ip_address.split('.')[-1]}'
+        self._dht_key = f'client{self._ip_address.split(".")[-1]}'
 
         self.title(f"Client {self._ip_address}")
         self.geometry('750x700')
