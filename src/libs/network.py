@@ -52,7 +52,9 @@ class Event(threading.Event):
 
 class DHT_Client:
     def __init__(self) -> None:
-        self.loop = asyncio.get_event_loop()
+        # self.loop = asyncio.get_event_loop()
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
         self.server = Server()
         self.loop.run_until_complete(self._init_server())
 

@@ -235,6 +235,9 @@ class Dialog(ttk.Frame):
 
         files = self.tk.splitlist(event.data)
         for f in files:
+            if not os.path.isfile(f):
+                CustomMessageBox.show(self._master, 'Ошибка', f'Можно передавать только файлы!', MessageType.ERROR)
+                continue
             with open(f'{f}', 'rb') as file:
                 file_data = b''
                 _eof = False
