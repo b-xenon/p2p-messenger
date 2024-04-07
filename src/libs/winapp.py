@@ -165,8 +165,9 @@ class WinApp(tkinter.Tk):
     def _connect_to_another_client_with_dht(self, another_client):
         try:
             another_client_ip = self._dht.get_data(another_client)['ip']
-        except OSError as e:
+        except (OSError, TypeError, KeyError) as e:
             self._logger.error(f'Не удалось получить ip клиента [{another_client}]. Ошибка [{e}].')
+            return
 
         if not self._is_ipv4(another_client_ip):
             self._logger.error(f"Введен некорректный ip-адрес [{another_client_ip}]!"
@@ -209,6 +210,7 @@ class WinApp(tkinter.Tk):
         
         def __close_program():
             self._logger.debug("Завершаю программу...")
+            self._dht.stop()
             self._our_client.close()
             self.destroy()
 

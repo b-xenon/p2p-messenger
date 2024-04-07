@@ -40,36 +40,32 @@ class Event(threading.Event):
 
 class DHT_Client:
     def __init__(self) -> None:
-        pass
+        self.loop = asyncio.get_event_loop()
+        self.server = Server()
+        self.loop.run_until_complete(self._init_server())
+
+    async def _init_server(self):
+        await self.server.listen(config.PORT_DHT - 1)
+        bootstrap_node = (config.IP_DHT, config.PORT_DHT)
+        await self.server.bootstrap([bootstrap_node])
 
     def set_data(self, key: str, data: dict) -> None:
-        asyncio.run(self._set_data(key, data))
+        self.loop.run_until_complete(self._set_data(key, data))
     
     async def _set_data(self, key: str, data: dict) -> None:
-        server = Server()
-        await server.listen(config.PORT_DHT - 1)
-
-        bootstrap_node = (config.IP_DHT, config.PORT_DHT)
-        await server.bootstrap([bootstrap_node])
-
-        await server.set(key, json.dumps(data))
-
-        server.stop()
+        await self.server.set(key, json.dumps(data))
 
     def get_data(self, key: str) -> dict:
-        return asyncio.run(self._get_data(key))
+        return self.loop.run_until_complete(self._get_data(key))
     
     async def _get_data(self, key: str) -> dict:
-        server = Server()
-        await server.listen(config.PORT_DHT - 1)
-
-        bootstrap_node = (config.IP_DHT, config.PORT_DHT)
-        await server.bootstrap([bootstrap_node])
-
-        data = await server.get(key)
+        data = await self.server.get(key)
+        return json.loads(data) if data else None
+    
+    def stop(self):
+        self.server.stop()
+        self.loop.close()
         
-        server.stop()
-        return json.loads(data)
 
 class Session:
     session_counter = 0
