@@ -164,16 +164,10 @@ class Session:
             all_rows = cur.fetchall()
             for row in all_rows:
                 decoded_row = json.loads(self._crypto.decode_data(row[1]))
-                message = {
-                        'author': decoded_row[1],
-                        'msg': decoded_row[2],
-                        'msg_id': decoded_row[0],
-                        'time': decoded_row[3]
-                    }
                 if int(row[0]):
-                    self._dialog_history.append(message)
+                    self._dialog_history.append(decoded_row)
                 else:
-                    self._temp_buffer_of_our_messages[decoded_row[0]] = message
+                    self._temp_buffer_of_our_messages[decoded_row[0]] = decoded_row
 
             if self._dialog_history:
                 self._dialog_history = sorted(self._dialog_history, key=lambda x: x['time'])
