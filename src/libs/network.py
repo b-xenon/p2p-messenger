@@ -211,55 +211,61 @@ class Session:
         finally:
             conn.close()
 
-    def _sync_dialog_history(self, interlocutor_dialog_len: int, interlocutor_last_message_id: str) -> None:
-        if interlocutor_last_message_id:
+    def _sync_dialog_history(self, interlocutor_dialog_message_id_list: list) -> None:        
+        #ciphertext
+        if interlocutor_dialog_message_id_list:
             # Заменяем префиксы, обозначающие, чьи это сообщения (m-наши, o-его)
-            interlocutor_last_message_id = interlocutor_last_message_id.replace('m', 'o') if 'm' in interlocutor_last_message_id else interlocutor_last_message_id.replace('o', 'm')
+            for i in range(len(interlocutor_dialog_message_id_list)):
+                 interlocutor_dialog_message_id_list[i] = interlocutor_dialog_message_id_list[i].replace('m', 'o') if 'm' in  interlocutor_dialog_message_id_list[i] else interlocutor_dialog_message_id_list[i].replace('o', 'm')
         
-        if interlocutor_dialog_len == len(self._dialog_history):
-            # Если у нас и у него не пустые истории
-            if len(self._dialog_history):                
-                # размеры историй одинаковы, но не нулевые, поэтому проверяем id последних сообщений
-                if interlocutor_last_message_id:
-                    # Если индексы не совпали, то нужно переоправить последние сообщения
-                    if self._dialog_history[-1]['msg_id'] != interlocutor_last_message_id:
-                        # Проверяем, сохранились ли данные меседжи в временном буфере
-                        if not self._temp_buffer_of_our_messages and interlocutor_last_message_id not in self._temp_buffer_of_our_messages:
-                            # Если нет, то отправляем последние сообщения, как новые
-                            self.send(self._dialog_history[-1], is_resended=True)
-                            return
-                        
-                        # Иначе просто сохраняем сообщения из буфера в историю
-                        
-                        # Пулим в ивент для обновления истории сообщений
-                        self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
-                            'addr': self._address,
-                            'data': self._temp_buffer_of_our_messages[interlocutor_last_message_id],
-                            'res_state': True
-                        }})
-                        self._event.set()
+        # Если у нас пустая история и у него, то выходим
+        if not len(interlocutor_dialog_message_id_list) and not len(self._dialog_history):
+            return
 
-                        # Сохраняем сообщение в бд
-                        self._save_message_in_db([self._temp_buffer_of_our_messages[interlocutor_last_message_id]])
+        # Проверяем сообщения во временном буфере
+        if self._temp_buffer_of_our_messages:
+            existed_msg = []
+            for msg in self._temp_buffer_of_our_messages.values():
+                if msg['msg_id'] not in interlocutor_dialog_message_id_list:
+                    self.send(msg, is_resended=True)
+                else:
+                    # Иначе просто сохраняем сообщения из буфера в историю
+                    # Пулим в ивент для обновления истории сообщений
+                    self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
+                        'addr': self._address,
+                        'data': msg,
+                        'res_state': True
+                    }})
+                    existed_msg.append(msg)
+                    del self._temp_buffer_of_our_messages[msg['msg_id']]
+            
+            if existed_msg:                
+                self._event.set()
+                # Сохраняем сообщение в бд
+                self._save_message_in_db(existed_msg)
 
-                        del self._temp_buffer_of_our_messages[interlocutor_last_message_id]
 
-                    
-            # Проверяем, нужно ли переотправить сообщение
-            if not self._temp_buffer_of_our_messages:
-                return
-            # Переотправляем все месседжи во временном буфере
-            for message in self._temp_buffer_of_our_messages.values():
-                self.send(message, is_resended=True)
-        
-        # Для разных размеров историй
-        else:
-            delta_dialog_len = len(self._dialog_history) - interlocutor_dialog_len
+        # Если у нас не пустая история, то отправляем те сообщения, которых у него нет
+        if self._dialog_history:
+            for msg in self._dialog_history:
+                if msg['msg_id'] not in interlocutor_dialog_message_id_list:
+                    self.send(msg, is_resended=True)
 
-            def _send_sync(messages_num):
+        # Если у него тоже не пустая история, то вытягиваем сообщения, которых у нас нет
+        if interlocutor_dialog_message_id_list:
+            our_msg_id_list = []
+            for msg in self._dialog_history:
+                our_msg_id_list.append(msg['msg_id'])
+
+            not_existed_msg_id = []
+            for msg in interlocutor_dialog_message_id_list:
+                if msg not in our_msg_id_list:
+                    not_existed_msg_id.append(msg)
+
+            if not_existed_msg_id:
                 self._logger.debug(f"Отправляю Sync сообщение клиенту [{self._address}].")
 
-                ciphertext, iv = self._crypto.encrypt(str(messages_num))
+                ciphertext, iv = self._crypto.encrypt(json.dumps(not_existed_msg_id))
 
                 # Отправляем сообщения
                 data_to_send = json.dumps({Message.MESSAGE_SYNC_DATA: {
@@ -271,48 +277,6 @@ class Session:
 
                 self._logger.debug(f"Отправил Sync сообщение клиенту [{self._address}].")
                 
-            # Если у нас меньше (мы отправляли - он принимал)
-            if delta_dialog_len < 0:
-                # Проверяем наш буфер
-                if not self._temp_buffer_of_our_messages:
-                    # То отправляем ему сообщение о вытягивании данных
-                    _send_sync(abs(delta_dialog_len))
-                    return
-
-                # Иначе пишем данные из буфера в историю
-                messages = []
-                buf = self._temp_buffer_of_our_messages.values()
-                size = min(abs(delta_dialog_len), len(self._temp_buffer_of_our_messages))
-                for i in range(size):
-                    # Пулим в ивент для обновления истории сообщений
-                    self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
-                        'addr': self._address,
-                        'data': buf[i],
-                        'res_state': True
-                    }})
-                    messages.append(buf[i])
-                self._event.set()
-
-                # Сохраняем сообщение в бд
-                self._save_message_in_db(messages)
-
-                for msg in messages:
-                    del self._temp_buffer_of_our_messages[msg['msg_id']]
-
-                # Проверяем осталась ли разница в историях
-                if len(self._dialog_history) < interlocutor_dialog_len:
-                    # То отправляем ему сообщение о вытягивании данных
-                    _send_sync(abs(len(self._dialog_history) - interlocutor_dialog_len))
-                
-                # Если остались данные в буфере, то отправляем их ему
-                if self._temp_buffer_of_our_messages:
-                    # Переотправляем все месседжи во временном буфере
-                    for message in self._temp_buffer_of_our_messages.values():
-                        self.send(message, is_resended=True)
-
-            # Если у нас больше (мы принимали - он отправлял)
-            elif delta_dialog_len > 0:
-                pass
 
     def _handle_client(self) -> None:
         # Использование метода settimeout(ping_timeout) для сокета client_socket в контексте 
@@ -348,10 +312,16 @@ class Session:
                     self._logger.debug(f"Получил Init сообщение от клиента [{self._address}].")
 
                     self._crypto.calculate_dh_secret(json_data[Message.MESSAGE_INIT]['pub_key'])
+                    
+                    msg_ids = []
+                    for msg in self._dialog_history:
+                        msg_ids.append(msg['msg_id'])
+
+                    ciphertext, iv = self._crypto.encrypt(json.dumps(msg_ids))
 
                     data_to_send = json.dumps({Message.MESSAGE_ACK: {
-                        'dialog_len': len(self._dialog_history),
-                        'last_msg_id': self._dialog_history[-1]['msg_id'] if self._dialog_history else None,
+                        'data': ciphertext,
+                        'iv': iv,
                         'pub_key': self._crypto.get_public_key()
                     }}).encode()
                     # Отправляем ответ на Init
@@ -365,13 +335,6 @@ class Session:
                     self._event.set()
 
                     self._logger.debug(f"Отправил Ack сообщение клиенту [{self._address}].")
-
-                    # Синхранизируем данные
-                    interlocutor_dialog_len = json_data[Message.MESSAGE_INIT]['dialog_len']
-                    threading.Thread(target=self._sync_dialog_history, args=(
-                        interlocutor_dialog_len,
-                        json_data[Message.MESSAGE_INIT]['last_msg_id']),
-                        daemon=True).start()
                     
                 
                 elif Message.MESSAGE_ACK in json_data:
@@ -379,6 +342,11 @@ class Session:
                     self._logger.debug(f"Получил Ack сообщение от клиента [{self._address}].")
                     
                     self._crypto.calculate_dh_secret(json_data[Message.MESSAGE_ACK]['pub_key'])
+
+                    ciphertext = json_data[Message.MESSAGE_ACK]['data']
+                    iv = json_data[Message.MESSAGE_ACK]['iv']
+
+                    message_data = json.loads(self._crypto.decrypt(ciphertext, iv))
 
                     self._event.data.put({Event.EVENT_CONNECT: {
                         'addr': self._address,
@@ -390,11 +358,7 @@ class Session:
                     ping_thread.start()
 
                     # Синхранизируем данные
-                    interlocutor_dialog_len = json_data[Message.MESSAGE_ACK]['dialog_len']
-                    threading.Thread(target=self._sync_dialog_history, args=(
-                        interlocutor_dialog_len,
-                        json_data[Message.MESSAGE_ACK]['last_msg_id']),
-                        daemon=True).start()
+                    threading.Thread(target=self._sync_dialog_history, args=(message_data, ), daemon=True).start()
 
 
                 elif Message.MESSAGE_PING in json_data:
@@ -490,15 +454,19 @@ class Session:
                     ciphertext = json_data[Message.MESSAGE_SYNC_DATA]['data']
                     iv = json_data[Message.MESSAGE_SYNC_DATA]['iv']
 
-                    message_data = int(self._crypto.decrypt(ciphertext, iv))
+                    message_data = json.loads(self._crypto.decrypt(ciphertext, iv))
 
-                    self._logger.debug(f"Начинаю отправлять последние [{message_data}] сообщений клиенту [{self._address}].")
+                    if not message_data:
+                        self._logger.debug(f"Пришел пустой запрос Sync от клиента [{self._address}].")
+                        continue
+
+                    self._logger.debug(f"Начинаю отправлять сообщения клиенту [{self._address}]. Всего нужно отправить [{len(message_data)}].")
                     # Переотправляем N месседжей из истории
-                    messages = self._dialog_history[-message_data:]
-                    for message in messages:
-                        self.send(message, is_resended=True)
+                    for message in self._dialog_history:
+                        if message['msg_id'] in message_data:
+                            self.send(message, is_resended=True)
 
-                    self._logger.debug(f"Последние [{message_data}] сообщений клиенту [{self._address}] были отправлены.")
+                    self._logger.debug(f"Все [{message_data}] сообщения(-ий) клиенту [{self._address}] были отправлены.")
 
 
             except socket.timeout as e:
