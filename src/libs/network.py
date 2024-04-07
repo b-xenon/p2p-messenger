@@ -265,6 +265,10 @@ class Session:
             if not_existed_msg_id:
                 self._logger.debug(f"Отправляю Sync сообщение клиенту [{self._address}].")
 
+                # Возвращаем префиксы, обозначающие, чьи это сообщения (m-наши, o-его)
+                for i in range(len(not_existed_msg_id)):
+                    not_existed_msg_id[i] = not_existed_msg_id[i].replace('m', 'o') if 'm' in  not_existed_msg_id[i] else not_existed_msg_id[i].replace('o', 'm')
+
                 ciphertext, iv = self._crypto.encrypt(json.dumps(not_existed_msg_id))
 
                 # Отправляем сообщения
@@ -466,7 +470,7 @@ class Session:
                         if message['msg_id'] in message_data:
                             self.send(message, is_resended=True)
 
-                    self._logger.debug(f"Все [{message_data}] сообщения(-ий) клиенту [{self._address}] были отправлены.")
+                    self._logger.debug(f"Все [{len(message_data)}] сообщения(-ий) клиенту [{self._address}] были отправлены.")
 
 
             except socket.timeout as e:
