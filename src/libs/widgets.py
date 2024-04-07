@@ -6,6 +6,7 @@ from tkinterdnd2 import DND_FILES
 import random
 import string
 
+import base64
 import enum
 import pyperclip
 from PIL import Image, ImageTk
@@ -245,9 +246,10 @@ class Dialog(ttk.Frame):
                     
                     file_data += _data
                     if len(file_data) > MAX_FILE_SIZE:
+                        CustomMessageBox.show(self._master, 'Ошибка', f'Слишком большой файл! Максимальный размер [{MAX_FILE_SIZE}]!', MessageType.ERROR)
                         break
                 else:
-                    self._command({'data': {'raw_data': file_data, 'filename': os.path.basename(f)}, 'type': MessageDataType.File})
+                    self._command({'data': {'raw_data': base64.b64encode(file_data).decode('utf-8'), 'filename': os.path.basename(f)}, 'type': MessageDataType.File})
 
 
     def _change_color(self, *args):

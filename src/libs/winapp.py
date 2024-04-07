@@ -1,3 +1,4 @@
+import base64
 import tkinter
 from tkinterdnd2 import TkinterDnD
 from tkinter import ttk
@@ -405,7 +406,7 @@ class WinApp(TkinterDnD.Tk):
     def _create_file_from_data(self, data: dict, client_name: str) -> None:
         if data and data['raw_data']:
             with open(f"{config.paths['dirs']['download']}/{data['filename']}", 'wb') as file:
-                file.write(data['raw_data'])
+                file.write(base64.b64decode(data['raw_data']))
             CustomMessageBox.show(self, 'Инфо', f'Получен файл [{data["filename"]}] от [{client_name}].', MessageType.SUCCESS)
 
     def _create_config(self) -> None:
