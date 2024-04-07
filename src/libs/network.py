@@ -7,6 +7,8 @@ import threading
 import sqlite3
 import requests
 
+import nest_asyncio
+nest_asyncio.apply()
 import asyncio
 from kademlia.network import Server
 
@@ -67,7 +69,7 @@ class DHT_Client:
     def stop(self):
         self.server.stop()
         self.loop.run_until_complete(self.loop.shutdown_asyncgens())  # Закрыть асинхронные генераторы
-        self.loop.run_until_complete(asyncio.sleep(1))
+        # self.loop.run_until_complete(asyncio.sleep(1))
         self.loop.close()
         
 
