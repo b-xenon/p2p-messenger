@@ -338,7 +338,7 @@ class WinApp(TkinterDnD.Tk):
                     elif Event.EVENT_FILE_WAS_ACCEPTED in event_data:
                         event_data = event_data[Event.EVENT_FILE_WAS_ACCEPTED]
                         interlocutor_username = event_data['username']
-                        CustomMessageBox.show(self, 'Инфо', f'Файл [{event_data['data']}] успешно доставлен до адрессата [{interlocutor_username}].', MessageType.SUCCESS)
+                        CustomMessageBox.show(self, 'Инфо', f'Файл [{event_data["data"]}] успешно доставлен до адрессата [{interlocutor_username}].', MessageType.SUCCESS)
 
                     elif Event.EVENT_CLOSE in event_data:
                         return
