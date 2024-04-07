@@ -168,7 +168,7 @@ class WinApp(tkinter.Tk):
             self._logger.error("Перед подключением необходимо ввести свой ключ устройства!")
             return
 
-        another_client = self._entry_another_client_ip_var.get() 
+        another_client = self._entry_another_client_var.get() 
         if not another_client:
             self._logger.error("Перед подключением необходимо ввести ключ другого устройства!")
             return
