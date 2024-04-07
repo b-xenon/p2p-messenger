@@ -9,14 +9,78 @@ from datetime import datetime
 
 from config import MAX_TEXT_SYMBOLS_NUMBER
 
+class LimitedText(ttk.Frame):
+    def __init__(self, master, max_size, **kwargs) -> None:
+        super().__init__(master, **kwargs)
+
+        self._max_size = max_size
+
+        self._text_input_message = tk.Text(self, height=4)
+        self._progressbar = ttk.Progressbar(self, mode='determinate', maximum=max_size, value=0)
+
+        self._text_input_message.pack(fill='x', padx=5, pady=5)
+        self._progressbar.pack(fill='x', padx=5)
+
+        self._text_input_message.bind('<Key>', self._check_limit)
+        self._text_input_message.bind('<Control-v>', self._handle_paste)
+        self._text_input_message.bind('<KeyRelease>', self._update_progress)
+
+    def _check_limit(self, event):
+        # Получаем текущее содержимое виджета
+        current_text = self._text_input_message.get('1.0', 'end-1c')
+
+        # Разрешаем нажатие Backspace, Delete, стрелок, и пропускаем управляющие символы и события без символов (например, Shift)
+        if event.keysym in ('BackSpace', 'Delete', 'Left', 'Right', 'Up', 'Down') or event.char in ('\x08', '\x7f') or not event.char:
+            return
+
+        # Проверяем длину текста с учетом возможного нового символа
+        if len(current_text) >= self._max_size:
+            return 'break'
+
+    def _handle_paste(self, event):
+        try:
+            clipboard_text = self._text_input_message.clipboard_get()
+        except tk.TclError:
+            return 'break'  # Если в буфере обмена нет текста
+        
+        current_text = self._text_input_message.get('1.0', 'end-1c')
+        selection = self._text_input_message.tag_ranges(tk.SEL)
+        if selection:
+            selected_text = self._text_input_message.get(*selection)
+            # Рассчитываем длину текста после возможной вставки с учетом замены выделенного текста
+            current_length = len(current_text) - len(selected_text)
+        else:
+            current_length = len(current_text)
+        
+        max_paste_length = self._max_size - current_length
+        paste_text = clipboard_text[:max_paste_length]  # Обрезаем текст до максимально допустимой длины
+        
+        if selection:
+            self._text_input_message.delete(*selection)  # Удаляем выделенный текст, если таковой имеется
+        
+        self._text_input_message.insert(tk.INSERT, paste_text)
+        return 'break'  # Предотвращаем дальнейшую обработку события (вставку)
+
+    def _update_progress(self, event=None):
+        current_text_length = len(self._text_input_message.get('1.0', 'end-1c'))
+        self._progressbar['value'] = current_text_length
+
+    def get_text(self) -> str:
+        return self._text_input_message.get("1.0", tk.END)
+    
+    def del_text(self) -> None:
+        self._text_input_message.delete("1.0", tk.END)
+        self._update_progress()
+
+
 class Dialog(ttk.Frame):
     objects_counter = 0
 
-    def __init__(self, master, interlocutor_ip, username=None, dialog_name=None, command=None, **kwargs) -> None:
+    def __init__(self, master, interlocutor_id, username=None, dialog_name=None, command=None, **kwargs) -> None:
         super().__init__(master, **kwargs)
 
         self._master = master
-        self._interlocutor_ip = interlocutor_ip
+        self._interlocutor_id = interlocutor_id
         self._username = username if username is not None else self._generate_random_name()
         self._command = command
 
@@ -35,9 +99,7 @@ class Dialog(ttk.Frame):
         self._text_dialog = tk.Text(self._frame_dialog, state='disabled', height=20)
         self._scrollbar = tk.Scrollbar(self._frame_dialog, command=self._text_dialog.yview)
         
-        self._frame_input = ttk.Frame(self)
-        self._text_input_message = tk.Text(self._frame_input, height=4)
-        self._progressbar = ttk.Progressbar(self._frame_input, mode='determinate', maximum=MAX_TEXT_SYMBOLS_NUMBER, value=0)
+        self._frame_input = LimitedText(self, MAX_TEXT_SYMBOLS_NUMBER)
 
         self._button_send_input_message = ttk.Button(self, text="Отправить", command=self.send_message)
         
@@ -50,63 +112,16 @@ class Dialog(ttk.Frame):
         self._scrollbar.pack(side=tk.LEFT, fill=tk.Y)
 
         self._frame_input.pack(fill='both', expand=True)
-        self._text_input_message.pack(fill='x', padx=5, pady=5)
-        self._progressbar.pack(fill='x', padx=5)
 
         self._button_send_input_message.pack(fill='both', expand=True, padx=5)
 
         # Настраиваем виджет Text для работы со Scrollbar
         self._text_dialog.config(yscrollcommand=self._scrollbar.set)
-
-
-        self._text_input_message.bind('<Key>', self._check_limit)
-        self._text_input_message.bind('<Control-v>', self._handle_paste)
-        self._text_input_message.bind('<KeyRelease>', self._update_progress)
-
-    def _check_limit(self, event):
-        # Получаем текущее содержимое виджета
-        current_text = self._text_input_message.get('1.0', 'end-1c')
-
-        # Разрешаем нажатие Backspace, Delete, стрелок, и пропускаем управляющие символы и события без символов (например, Shift)
-        if event.keysym in ('BackSpace', 'Delete', 'Left', 'Right', 'Up', 'Down') or event.char in ('\x08', '\x7f') or not event.char:
-            return
-
-        # Проверяем длину текста с учетом возможного нового символа
-        if len(current_text) >= MAX_TEXT_SYMBOLS_NUMBER:
-            return 'break'
-
-    def _handle_paste(self, event):
-        try:
-            clipboard_text = self._text_input_message.clipboard_get()
-        except tk.TclError:
-            return 'break'  # Если в буфере обмена нет текста
-        
-        current_text = self._text_input_message.get('1.0', 'end-1c')
-        selection = self._text_input_message.tag_ranges(tk.SEL)
-        if selection:
-            selected_text = self._text_input_message.get(*selection)
-            # Рассчитываем длину текста после возможной вставки с учетом замены выделенного текста
-            current_length = len(current_text) - len(selected_text)
-        else:
-            current_length = len(current_text)
-        
-        max_paste_length = MAX_TEXT_SYMBOLS_NUMBER - current_length
-        paste_text = clipboard_text[:max_paste_length]  # Обрезаем текст до максимально допустимой длины
-        
-        if selection:
-            self._text_input_message.delete(*selection)  # Удаляем выделенный текст, если таковой имеется
-        
-        self._text_input_message.insert(tk.INSERT, paste_text)
-        return 'break'  # Предотвращаем дальнейшую обработку события (вставку)
-
-    def _update_progress(self, event=None):
-        current_text_length = len(self._text_input_message.get('1.0', 'end-1c'))
-        self._progressbar['value'] = current_text_length
-
+   
 
     def send_message(self) -> None:
         # Получаем текст из Text widget
-        message = self._text_input_message.get("1.0", tk.END).strip()
+        message = self._frame_input.get_text().strip()
         
         if message:  # Проверяем, что текст не пустой
             current_time = datetime.now(self._moscow_tz)
@@ -115,8 +130,7 @@ class Dialog(ttk.Frame):
             self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
 
             # Очищаем Text widget
-            self._text_input_message.delete("1.0", tk.END)
-            self._update_progress()
+            self._frame_input.del_text()
         
             self._messages.append({
                 'author': self._username,
@@ -221,8 +235,8 @@ class Dialog(ttk.Frame):
     def get_id(self) -> int:
         return self._id
     
-    def get_interlocutor_ip(self) -> str:
-        return self._interlocutor_ip
+    def get_interlocutor_id(self) -> str:
+        return self._interlocutor_id
 
     def activate(self) -> None:
         self._text_input_message.config(state='normal')
@@ -246,9 +260,12 @@ class Chats(ttk.Frame):
         self._notebook_chats = ttk.Notebook(self)
         self._notebook_chats.pack(expand=True, fill='both', padx=10, pady=10)
     
-    def add_dialog(self, dialog_name: str, interlocutor_ip: str, dialog_history: list[dict]) -> int:
+    def set_username(self, username: str) -> None:
+        self._username = username
+
+    def add_dialog(self, dialog_name: str, interlocutor_id: str, dialog_history: list[dict]) -> int:
         # Создание новой вкладки с CustomWidget
-        dlg = Dialog(self._notebook_chats, interlocutor_ip, username=self._username, dialog_name=dialog_name, command=self._command)
+        dlg = Dialog(self._notebook_chats, interlocutor_id, username=self._username, dialog_name=dialog_name, command=self._command)
         self._dialogs[dlg.get_id()] = dlg
 
         dlg.load_history(dialog_history)

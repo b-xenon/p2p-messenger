@@ -1,9 +1,11 @@
+import re
 import time
 import json
 import socket
 import queue
 import threading
 import sqlite3
+import requests
 
 import asyncio
 from kademlia.network import Server
@@ -64,15 +66,19 @@ class DHT_Client:
     
     def stop(self):
         self.server.stop()
+        self.loop.run_until_complete(self.loop.shutdown_asyncgens())  # Закрыть асинхронные генераторы
+        self.loop.run_until_complete(asyncio.sleep(1))
         self.loop.close()
         
 
 class Session:
     session_counter = 0
 
-    def __init__(self, socket: socket.socket, address: tuple, logger: Logger, event: Event) -> None:
+    def __init__(self, socket: socket.socket, address: tuple, username: str, logger: Logger, event: Event) -> None:
         self._socket = socket
         self._address = address
+        self._our_username = username
+        self._interlocutor_username = None
         self._logger = logger
         self._session_is_active = True
         self._last_ping_time = time.time()
@@ -88,8 +94,6 @@ class Session:
 
         self._int_size_for_message_len = 4
 
-        self._load_dialog_history()
-
         self._thread_client_handler = threading.Thread(target=self._handle_client, daemon=True)
         self._thread_client_handler.start()
 
@@ -103,8 +107,7 @@ class Session:
             self._socket.connect(self._address)
 
             data_to_send = json.dumps({Message.MESSAGE_INIT: {
-                'dialog_len': len(self._dialog_history),
-                'last_msg_id': self._dialog_history[-1]['msg_id'] if self._dialog_history else None,
+                'username': self._our_username,
                 'pub_key': self._crypto.get_public_key()
                 
             }}).encode()
@@ -119,7 +122,7 @@ class Session:
             return -1
 
     def send(self, message: dict, is_resended: bool = False) -> None:
-        self._logger.debug(f"Отправляю Send сообщение клиенту [{self._address}].")
+        self._logger.debug(f"Отправляю Send сообщение клиенту [{self._address}][{self._interlocutor_username}].")
 
         ciphertext, iv = self._crypto.encrypt(json.dumps(message))
 
@@ -132,15 +135,15 @@ class Session:
         # Отправляем Send
         self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
 
-        self._logger.debug(f"Отправил Send сообщение клиенту [{self._address}] размером [{len(data_to_send)}].")
+        self._logger.debug(f"Отправил Send сообщение клиенту [{self._address}][{self._interlocutor_username}] размером [{len(data_to_send)}].")
 
         self._temp_buffer_of_our_messages[message['msg_id']] = message
     
     def _load_dialog_history(self) -> None:
-        self._logger.debug(f'Подключаюсь к базе данных и загружаю историю диалога с клиентом [{self._address}].')
+        self._logger.debug(f'Подключаюсь к базе данных и загружаю историю диалога с клиентом [{self._address}][{self._interlocutor_username}].')
         
         try:
-            table_name = f"table_{self._address[0].replace('.', '_').strip()}"
+            table_name = f"table_{self._interlocutor_username}"
             # Подключение к базе данных (или её создание, если она не существует)
             conn = sqlite3.connect(config.paths['files']['db'])
             cur = conn.cursor()
@@ -170,8 +173,8 @@ class Session:
             if self._dialog_history:
                 self._dialog_history = sorted(self._dialog_history, key=lambda x: x['time'])
 
-            self._logger.debug(f'Было загружено [{len(self._dialog_history)}] сообщения(-ий) для клиента [{self._address}] из истории.')
-            self._logger.debug(f'Было загружено [{len(self._temp_buffer_of_our_messages)}] сообщения(-ий) для клиента [{self._address}], требующих повторной отправки.')
+            self._logger.debug(f'Было загружено [{len(self._dialog_history)}] сообщения(-ий) для клиента [{self._address}][{self._interlocutor_username}] из истории.')
+            self._logger.debug(f'Было загружено [{len(self._temp_buffer_of_our_messages)}] сообщения(-ий) для клиента [{self._address}][{self._interlocutor_username}], требующих повторной отправки.')
 
             req = f"DELETE FROM {table_name} WHERE sync_state = ?"
             cur.execute(req, (False,))
@@ -193,8 +196,8 @@ class Session:
             self._dialog_history += messages
 
         try:
-            table_name = f"table_{self._address[0].replace('.', '_').strip()}"
-            self._logger.debug(f"Добавляю [{len(_messages)}] сообщение(-ий) в базу данных для клиента [{self._address}].")
+            table_name = f"table_{self._interlocutor_username}"
+            self._logger.debug(f"Добавляю [{len(_messages)}] сообщение(-ий) в базу данных для клиента [{self._address}][{self._interlocutor_username}].")
             conn = sqlite3.connect(config.paths['files']['db'])
             c = conn.cursor()
              # SQL-запрос для вставки данных
@@ -205,9 +208,9 @@ class Session:
 
              # Сохраняем изменения
             conn.commit()
-            self._logger.debug(f"[{len(_messages)}] сообщение(-ий) успешно добавлено(-ы) в базу данных для клиента [{self._address}].")
+            self._logger.debug(f"[{len(_messages)}] сообщение(-ий) успешно добавлено(-ы) в базу данных для клиента [{self._address}][{self._interlocutor_username}].")
         except sqlite3.Error as e:
-            self._logger.error(f'Ошибка при добавлении данных в БД для клиента [{self._address}]. Ошибка [{e}].')
+            self._logger.error(f'Ошибка при добавлении данных в БД для клиента [{self._address}][{self._interlocutor_username}]. Ошибка [{e}].')
         finally:
             conn.close()
 
@@ -263,7 +266,7 @@ class Session:
                     not_existed_msg_id.append(msg)
 
             if not_existed_msg_id:
-                self._logger.debug(f"Отправляю Sync сообщение клиенту [{self._address}].")
+                self._logger.debug(f"Отправляю Sync сообщение клиенту [{self._address}][{self._interlocutor_username}].")
 
                 # Возвращаем префиксы, обозначающие, чьи это сообщения (m-наши, o-его)
                 for i in range(len(not_existed_msg_id)):
@@ -315,8 +318,11 @@ class Session:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
                     self._logger.debug(f"Получил Init сообщение от клиента [{self._address}].")
 
+                    self._interlocutor_username = json_data[Message.MESSAGE_INIT]['username']
                     self._crypto.calculate_dh_secret(json_data[Message.MESSAGE_INIT]['pub_key'])
                     
+                    self._load_dialog_history()
+
                     msg_ids = []
                     for msg in self._dialog_history:
                         msg_ids.append(msg['msg_id'])
@@ -326,25 +332,27 @@ class Session:
                     data_to_send = json.dumps({Message.MESSAGE_ACK: {
                         'data': ciphertext,
                         'iv': iv,
+                        'username': self._our_username,
                         'pub_key': self._crypto.get_public_key()
                     }}).encode()
                     # Отправляем ответ на Init
                     self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
+                    self._logger.debug(f"Отправил Ack сообщение клиенту [{self._address}][{self._interlocutor_username}].")
 
                     self._event.data.put({Event.EVENT_CONNECT: {
+                        'username': self._interlocutor_username,
                         'addr': self._address,
                         'session_id': self._session_id,
                         'data': self._dialog_history
                     }})
                     self._event.set()
-
-                    self._logger.debug(f"Отправил Ack сообщение клиенту [{self._address}].")
                     
                 
                 elif Message.MESSAGE_ACK in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
                     self._logger.debug(f"Получил Ack сообщение от клиента [{self._address}].")
                     
+                    self._interlocutor_username = json_data[Message.MESSAGE_ACK]['username']
                     self._crypto.calculate_dh_secret(json_data[Message.MESSAGE_ACK]['pub_key'])
 
                     ciphertext = json_data[Message.MESSAGE_ACK]['data']
@@ -352,7 +360,10 @@ class Session:
 
                     message_data = json.loads(self._crypto.decrypt(ciphertext, iv))
 
+                    self._load_dialog_history()
+
                     self._event.data.put({Event.EVENT_CONNECT: {
+                        'username': self._interlocutor_username,
                         'addr': self._address,
                         'session_id': self._session_id,
                         'data': self._dialog_history
@@ -367,21 +378,21 @@ class Session:
 
                 elif Message.MESSAGE_PING in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
-                    self._logger.debug(f"Получил Ping сообщение от клиента [{self._address}].")
+                    self._logger.debug(f"Получил Ping сообщение от клиента [{self._address}][{self._interlocutor_username}].")
 
                     data_to_send = json.dumps({Message.MESSAGE_PONG: None}).encode()
                     # Отправляем ответ на Ping
                     self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
 
-                    self._logger.debug(f"Отправил Pong сообщение клиенту [{self._address}].")
+                    self._logger.debug(f"Отправил Pong сообщение клиенту [{self._address}][{self._interlocutor_username}].")
 
                 elif Message.MESSAGE_PONG in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
-                    self._logger.debug(f"Получил Pong сообщение от клиента [{self._address}].")
+                    self._logger.debug(f"Получил Pong сообщение от клиента [{self._address}][{self._interlocutor_username}].")
 
                 elif Message.MESSAGE_SEND_DATA in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
-                    self._logger.debug(f"Получил Send сообщение от клиента [{self._address}].")
+                    self._logger.debug(f"Получил Send сообщение от клиента [{self._address}][{self._interlocutor_username}].")
                     
                     ciphertext = json_data[Message.MESSAGE_SEND_DATA]['data']
                     iv = json_data[Message.MESSAGE_SEND_DATA]['iv']
@@ -404,6 +415,7 @@ class Session:
                     if not already_exist:
                         # Пулим в ивент для обновления истории сообщений
                         self._event.data.put({Event.EVENT_ADD_RECV_DATA: {
+                            'username': self._interlocutor_username,
                             'addr': self._address,
                             'data': message_data,
                             'res_state': is_resended
@@ -423,11 +435,11 @@ class Session:
                     # Отправляем Recv
                     self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
 
-                    self._logger.debug(f"Отправил Recv сообщение клиенту [{self._address}].")
+                    self._logger.debug(f"Отправил Recv сообщение клиенту [{self._address}][{self._interlocutor_username}].")
 
                 elif Message.MESSAGE_RECV_DATA in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
-                    self._logger.debug(f"Получил Recv сообщение от клиента [{self._address}].")
+                    self._logger.debug(f"Получил Recv сообщение от клиента [{self._address}][{self._interlocutor_username}].")
 
                     ciphertext = json_data[Message.MESSAGE_RECV_DATA]['data']
                     iv = json_data[Message.MESSAGE_RECV_DATA]['iv']
@@ -439,6 +451,7 @@ class Session:
                     if not is_resended:
                         # Пулим в ивент для обновления истории сообщений
                         self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
+                            'username': self._interlocutor_username,
                             'addr': self._address,
                             'data': self._temp_buffer_of_our_messages[message_data],
                             'res_state': is_resended
@@ -453,7 +466,7 @@ class Session:
             
                 elif Message.MESSAGE_SYNC_DATA in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
-                    self._logger.debug(f"Получил Sync сообщение от клиента [{self._address}].")
+                    self._logger.debug(f"Получил Sync сообщение от клиента [{self._address}][{self._interlocutor_username}].")
 
                     ciphertext = json_data[Message.MESSAGE_SYNC_DATA]['data']
                     iv = json_data[Message.MESSAGE_SYNC_DATA]['iv']
@@ -461,29 +474,29 @@ class Session:
                     message_data = json.loads(self._crypto.decrypt(ciphertext, iv))
 
                     if not message_data:
-                        self._logger.debug(f"Пришел пустой запрос Sync от клиента [{self._address}].")
+                        self._logger.debug(f"Пришел пустой запрос Sync от клиента [{self._address}][{self._interlocutor_username}].")
                         continue
 
-                    self._logger.debug(f"Начинаю отправлять сообщения клиенту [{self._address}]. Всего нужно отправить [{len(message_data)}].")
+                    self._logger.debug(f"Начинаю отправлять сообщения клиенту [{self._address}][{self._interlocutor_username}]. Всего нужно отправить [{len(message_data)}].")
                     # Переотправляем N месседжей из истории
                     for message in self._dialog_history:
                         if message['msg_id'] in message_data:
                             self.send(message, is_resended=True)
 
-                    self._logger.debug(f"Все [{len(message_data)}] сообщения(-ий) клиенту [{self._address}] были отправлены.")
+                    self._logger.debug(f"Все [{len(message_data)}] сообщения(-ий) клиенту [{self._address}][{self._interlocutor_username}] были отправлены.")
 
 
             except socket.timeout as e:
-                self._logger.debug(f"Клиент не отвечает, закрываю соединение с [{self._address}].")
+                self._logger.debug(f"Клиент не отвечает, закрываю соединение с [{self._address}][{self._interlocutor_username}].")
                 self.close()
 
             except json.decoder.JSONDecodeError as e:
                 self._logger.error(f'Ошибка при распознании данных. Размер данный [{data_size}]. Данные: [{data}]')
                 self._clear_socket_buffer()
-                self._logger.debug(f"Отчищаю буфер сокета для [{self._address}].")
+                self._logger.debug(f"Отчищаю буфер сокета для [{self._address}][{self._interlocutor_username}].")
 
             except BrokenPipeError:
-                self._logger.debug(f'Клиент [{self._address}] завершил общение. Завершаю сессию.')
+                self._logger.debug(f'Клиент [{self._address}][{self._interlocutor_username}] завершил общение. Завершаю сессию.')
                 self.close()
 
             except OSError:
@@ -498,10 +511,10 @@ class Session:
                 data_to_send = json.dumps({Message.MESSAGE_PING: None}).encode()
                 # Отправляем Ping
                 self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
-                self._logger.debug(f"Отправил Ping сообщение клиенту [{self._address}].")
+                self._logger.debug(f"Отправил Ping сообщение клиенту [{self._address}][{self._interlocutor_username}].")
                 self._last_ping_time = time.time()      # Обновляем время последнего пинга
             except OSError:
-                self._logger.debug(f"Не удалось отправить пинг клиенту [{self._address}].")
+                self._logger.debug(f"Не удалось отправить пинг клиенту [{self._address}][{self._interlocutor_username}].")
 
 
     def _clear_socket_buffer(self):
@@ -522,7 +535,10 @@ class Session:
             self._session_is_active = False
             self._socket.close()
 
-            self._event.data.put({Event.EVENT_DISCONNECT: self._address})
+            self._event.data.put({Event.EVENT_DISCONNECT: {
+                'username': self._interlocutor_username,
+                'addr': self._address
+            }})
             self._event.set()
 
             self._save_message_in_db(list(self._temp_buffer_of_our_messages.values()), is_temp_buffer_elements=True)
@@ -532,15 +548,21 @@ class Session:
             except RuntimeError:
                 pass
 
-            self._logger.debug(f"Сессия для клиента [{self._address}] завершена.")
+            self._logger.debug(f"Сессия для клиента [{self._address}][{self._interlocutor_username}] завершена.")
 
 
 class Client:
-    def __init__(self, logger: Logger, port: int = config.PORT_CLIENT_COMMUNICATION) -> None:
+    def __init__(self, logger: Logger, use_local_ip: bool = True, port: int = config.PORT_CLIENT_COMMUNICATION) -> None:
         self._client_state_is_active = True
         self._listen_communication_port = port
         self._logger = logger
         self.event = Event()
+
+        self._use_local_ip = use_local_ip
+        self._username = None
+
+        self._logger.debug('Подключаюсь к DHT...')
+        self.dht = DHT_Client()
 
         # Список активных сессий
         self._sessions = {}
@@ -568,7 +590,7 @@ class Client:
             try:
                 client_socket, addr = self._listener_socket.accept()
                 self._logger.debug(f'Создаю новую сессию с [{addr}].')
-                s = Session(client_socket, addr, self._logger, self.event)
+                s = Session(client_socket, addr, self._username, self._logger, self.event)
                 self._sessions[s.get_id()] = s
 
             except OSError as e:
@@ -579,6 +601,7 @@ class Client:
         s = Session(
             socket.socket(socket.AF_INET, socket.SOCK_STREAM),
             (interlocutor_ip, port),
+            self._username,
             self._logger,
             self.event
         )
@@ -606,3 +629,42 @@ class Client:
         if session_id not in self._sessions:
             return None
         return self._sessions[session_id]
+    
+    def set_username(self, username: str):
+        self._username = username
+
+    def get_ip_address(self) -> str:
+        ip_address = None
+        
+        self._logger.debug("Получаю ip адрес...")
+        # Локальный IP
+        if self._use_local_ip:
+            try:
+                # Создаем сокет
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                # Не обязательно устанавливать реальное соединение
+                s.connect(("8.8.8.8", 80))
+                # Получаем локальный IP-адрес устройства
+                ip_address = s.getsockname()[0]
+                self._logger.debug(f"Получен локальный ip адрес [{ip_address}].")
+            finally:
+                # Закрываем сокет
+                s.close()
+        else:
+            try:
+                response = requests.get('https://ifconfig.me')
+                ip_address = response.text
+                self._logger.debug(f"Получен глобальный ip адрес [{ip_address}].")
+            except requests.RequestException as e:
+                self._logger.error(f"Ошибка при получении глобального IP: {e}.")
+
+        return ip_address
+    
+    def is_ipv4(self, addr: str) -> bool:
+        # Регулярное выражение для проверки IPv4
+        pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
+        if re.match(pattern, addr):
+            # Проверяем, что каждый октет находится в диапазоне от 0 до 255
+            parts = addr.split('.')
+            return all(0 <= int(part) <= 255 for part in parts)
+        return False
