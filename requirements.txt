@@ -2,6 +2,7 @@ certifi==2024.2.2
 charset-normalizer==3.3.2
 idna==3.6
 kademlia==2.2.2
+nest-asyncio==1.6.0
 pycryptodome==3.20.0
 pytz==2024.1
 requests==2.31.0
