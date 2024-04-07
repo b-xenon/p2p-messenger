@@ -4,7 +4,6 @@ from tkinter import ttk
 import socket
 import requests
 import threading
-import random
 
 import re
 import config
@@ -25,7 +24,7 @@ class WinApp(tkinter.Tk):
         self._inactive_dialogs = {}
         self._our_client = Client(self._logger)
         self._dht = DHT_Client()
-        self._dht_key = f'client{random.randint(0, 1000)}'
+        self._dht_key = f'client{self._ip_address.split('.')[-1]}'
 
         self.title(f"Client {self._ip_address}")
         self.geometry('750x700')
@@ -161,8 +160,11 @@ class WinApp(tkinter.Tk):
             self._logger.error("Перед подключением необходимо ввести ключ другого устройства!")
             return
         
+        threading.Thread(target=self._connect_to_another_client_with_dht, args=(another_client, ), daemon=True).start()
+
+    def _connect_to_another_client_with_dht(self, another_client):
         try:
-            another_client_ip = self._dht.get_data(another_client)
+            another_client_ip = self._dht.get_data(another_client)['ip']
         except OSError as e:
             self._logger.error(f'Не удалось получить ip клиента [{another_client}]. Ошибка [{e}].')
 

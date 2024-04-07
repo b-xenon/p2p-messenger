@@ -56,8 +56,8 @@ class DHT_Client:
 
         server.stop()
 
-    def get_data(self, key: str) -> None:
-        asyncio.run(self._get_data(key))
+    def get_data(self, key: str) -> dict:
+        return asyncio.run(self._get_data(key))
     
     async def _get_data(self, key: str) -> dict:
         server = Server()
@@ -70,7 +70,6 @@ class DHT_Client:
         
         server.stop()
         return json.loads(data)
-
 
 class Session:
     session_counter = 0
