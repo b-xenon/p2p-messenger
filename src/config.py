@@ -14,6 +14,7 @@ PING_TIMEOUT = 10
 
 # ---Widgets---
 MAX_TEXT_SYMBOLS_NUMBER = 5000
+MAX_FILE_SIZE = 20000
 # -------------
 
 from platform import system

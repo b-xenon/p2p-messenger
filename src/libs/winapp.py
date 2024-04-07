@@ -1,4 +1,5 @@
 import tkinter
+from tkinterdnd2 import TkinterDnD
 from tkinter import ttk
 
 import threading
@@ -9,9 +10,9 @@ import json
 import config
 from libs.mylogger import MyLogger, MyLoggerType
 from libs.widgets import Chats, CustomMessageBox, MessageType
-from libs.network import Client, Event
+from libs.network import Client, Event, MessageDataType
 
-class WinApp(tkinter.Tk):
+class WinApp(TkinterDnD.Tk):
     def __init__(self, use_local_ip: bool = True) -> None:
         super().__init__()
         self._default_init()
@@ -313,7 +314,6 @@ class WinApp(tkinter.Tk):
 
                     elif Event.EVENT_ADD_RECV_DATA in event_data:
                         event_data = event_data[Event.EVENT_ADD_RECV_DATA] 
-                        interlocutor_ip = event_data['addr'][0]
                         interlocutor_username = event_data['username']
 
                         if interlocutor_username in self._active_dialogs:
@@ -321,13 +321,24 @@ class WinApp(tkinter.Tk):
 
                     elif Event.EVENT_ADD_SEND_DATA in event_data:
                         event_data = event_data[Event.EVENT_ADD_SEND_DATA] 
-                        interlocutor_ip = event_data['addr'][0]
                         is_resended = event_data['res_state']
                         interlocutor_username = event_data['username']
 
                         if is_resended:
                             if interlocutor_username in self._active_dialogs:
                                 threading.Thread(target=show_message, args=(event_data['data'], interlocutor_username), daemon=True).start()
+
+                    elif Event.EVENT_GET_FILE in event_data:
+                        event_data = event_data[Event.EVENT_GET_FILE]
+                        interlocutor_username = event_data['username']
+
+                        # Пишем файл
+                        threading.Thread(target=self._create_file_from_data, args=(event_data['data'], interlocutor_username), daemon=True).start()
+
+                    elif Event.EVENT_FILE_WAS_ACCEPTED in event_data:
+                        event_data = event_data[Event.EVENT_FILE_WAS_ACCEPTED]
+                        interlocutor_username = event_data['username']
+                        CustomMessageBox.show(self, 'Инфо', f'Файл [{event_data['data']}] успешно доставлен до адрессата [{interlocutor_username}].', MessageType.SUCCESS)
 
                     elif Event.EVENT_CLOSE in event_data:
                         return
@@ -391,6 +402,11 @@ class WinApp(tkinter.Tk):
             self._active_dialogs[self._chats.get_current_dialog().get_interlocutor_id()]['session_id']
         ).send(message)
 
+    def _create_file_from_data(self, data: dict, client_name: str) -> None:
+        if data and data['raw_data']:
+            with open(f"{config.paths['dirs']['download']}/{data['filename']}", 'wb') as file:
+                file.write(data['raw_data'])
+            CustomMessageBox.show(self, 'Инфо', f'Получен файл [{data["filename"]}] от [{client_name}].', MessageType.SUCCESS)
 
     def _create_config(self) -> None:
         try:

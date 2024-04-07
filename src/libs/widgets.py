@@ -1,5 +1,7 @@
+import os
 import tkinter as tk
 from tkinter import ttk
+from tkinterdnd2 import DND_FILES
 
 import random
 import string
@@ -11,7 +13,8 @@ from PIL import Image, ImageTk
 import pytz
 from datetime import datetime
 
-from config import MAX_TEXT_SYMBOLS_NUMBER, paths
+from config import MAX_TEXT_SYMBOLS_NUMBER, paths, MAX_FILE_SIZE
+from libs.network import MessageDataType
 
 class MessageType(enum.Enum):
     ANY = 'ANY'
@@ -220,7 +223,33 @@ class Dialog(ttk.Frame):
 
         self._change_color()
         self._master.bind("<<ThemeChanged>>", self._change_color)
+
+        # register the listbox as a drop target
+        self._text_dialog.drop_target_register(DND_FILES)
+        self._text_dialog.dnd_bind('<<Drop>>', self._drag_n_drop_event_handler)
    
+    def _drag_n_drop_event_handler(self, event):
+        if self._button_send_input_message['state'] == 'disabled':
+            return
+
+        files = self.tk.splitlist(event.data)
+        for f in files:
+            with open(f'{f}', 'rb') as file:
+                file_data = b''
+                _eof = False
+                while not _eof:
+                    _data = file.read(1024)
+                    
+                    if not _data:
+                        _eof = True
+                    
+                    file_data += _data
+                    if len(file_data) > MAX_FILE_SIZE:
+                        break
+                else:
+                    self._command({'data': {'raw_data': file_data, 'filename': os.path.basename(f)}, 'type': MessageDataType.File})
+
+
     def _change_color(self, *args):
         _style = ttk.Style()
         bg_color = _style.lookup('TFrame', 'background')
@@ -252,7 +281,7 @@ class Dialog(ttk.Frame):
 
             # Вызов пользовательской функции, если она задана
             if self._command:
-                self._command(self._messages[-1])
+                self._command({'data': self._messages[-1], 'type': MessageDataType.Text})
     
     def exist_message(self, message: dict) -> bool:
         for msg in self._messages:

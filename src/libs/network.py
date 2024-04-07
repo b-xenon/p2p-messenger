@@ -30,6 +30,11 @@ class Message:
     MESSAGE_SYNC_DATA = "6"
 
 
+class MessageDataType:
+    Text = 'Text'
+    File = 'File'
+
+
 class Event(threading.Event):
     EVENT_CONNECT = 0
     EVENT_DISCONNECT = 1
@@ -37,6 +42,9 @@ class Event(threading.Event):
 
     EVENT_ADD_RECV_DATA = 3
     EVENT_ADD_SEND_DATA = 4
+
+    EVENT_GET_FILE = 5
+    EVENT_FILE_WAS_ACCEPTED = 6
 
     def __init__(self) -> None:
         super().__init__()
@@ -140,7 +148,8 @@ class Session:
 
         self._logger.debug(f"Отправил Send сообщение клиенту [{self._address}][{self._interlocutor_username}] размером [{len(data_to_send)}].")
 
-        self._temp_buffer_of_our_messages[message['msg_id']] = message
+        if message['type'] == MessageDataType.Text:
+            self._temp_buffer_of_our_messages[message['msg_id']] = message
     
     def _load_dialog_history(self) -> None:
         self._logger.debug(f'Подключаюсь к базе данных и загружаю историю диалога с клиентом [{self._address}][{self._interlocutor_username}].')
@@ -225,7 +234,7 @@ class Session:
             existed_msg = []
             for msg in self._temp_buffer_of_our_messages.values():
                 if msg['msg_id'] not in interlocutor_dialog_message_id_list:
-                    self.send(msg, is_resended=True)
+                    self.send({'data': msg, 'type': MessageDataType.Text}, is_resended=True)
                 else:
                     # Иначе просто сохраняем сообщения из буфера в историю
                     # Пулим в ивент для обновления истории сообщений
@@ -247,7 +256,7 @@ class Session:
         if self._dialog_history:
             for msg in self._dialog_history:
                 if msg['msg_id'] not in interlocutor_dialog_message_id_list:
-                    self.send(msg, is_resended=True)
+                    self.send({'data': msg, 'type': MessageDataType.Text}, is_resended=True)
 
         # Если у него тоже не пустая история, то вытягиваем сообщения, которых у нас нет
         if interlocutor_dialog_message_id_list:
@@ -393,40 +402,61 @@ class Session:
                     iv = json_data[Message.MESSAGE_SEND_DATA]['iv']
 
                     message_data = json.loads(self._crypto.decrypt(ciphertext, iv))
+                    message_type = message_data['type']
+                    message_data = message_data['data']
 
-                    message_id = message_data['msg_id']
-                    is_resended = json_data[Message.MESSAGE_SEND_DATA]['res_state']
+                    if message_type == MessageDataType.Text:
+                        message_id = message_data['msg_id']
+                        is_resended = json_data[Message.MESSAGE_SEND_DATA]['res_state']
 
-                    message_data['msg_id'] = message_id.replace('m', 'o') if 'm' in message_id else message_id.replace('o', 'm')
-                    new_message_id = message_data['msg_id']
+                        message_data['msg_id'] = message_id.replace('m', 'o') if 'm' in message_id else message_id.replace('o', 'm')
+                        new_message_id = message_data['msg_id']
 
-                    already_exist = False
-                    if is_resended:
-                        for msg in self._dialog_history:
-                            if new_message_id == msg['msg_id']:
-                                already_exist = True
-                                break
-                    
-                    if not already_exist:
+                        already_exist = False
+                        if is_resended:
+                            for msg in self._dialog_history:
+                                if new_message_id == msg['msg_id']:
+                                    already_exist = True
+                                    break
+                        
+                        if not already_exist:
+                            # Пулим в ивент для обновления истории сообщений
+                            self._event.data.put({Event.EVENT_ADD_RECV_DATA: {
+                                'username': self._interlocutor_username,
+                                'addr': self._address,
+                                'data': message_data,
+                                'res_state': is_resended
+                            }})
+                            self._event.set()
+
+                            # Сохраняем сообщение в бд
+                            self._save_message_in_db([message_data])
+
+                        ciphertext, iv = self._crypto.encrypt(json.dumps({'type': MessageDataType.Text, 'data': message_id}))
+                        # Отправляем идентификатор сообщения
+                        data_to_send = json.dumps({Message.MESSAGE_RECV_DATA: {
+                            'data': ciphertext,
+                            'iv': iv,
+                            'res_state': is_resended
+                        }}).encode()
+
+                    elif message_type == MessageDataType.File:
                         # Пулим в ивент для обновления истории сообщений
-                        self._event.data.put({Event.EVENT_ADD_RECV_DATA: {
+                        self._event.data.put({Event.EVENT_GET_FILE: {
                             'username': self._interlocutor_username,
                             'addr': self._address,
-                            'data': message_data,
-                            'res_state': is_resended
+                            'data': message_data
                         }})
                         self._event.set()
 
-                        # Сохраняем сообщение в бд
-                        self._save_message_in_db([message_data])
-
-                    ciphertext, iv = self._crypto.encrypt(message_id)
-                    # Отправляем идентификатор сообщения
-                    data_to_send = json.dumps({Message.MESSAGE_RECV_DATA: {
-                        'data': ciphertext,
-                        'iv': iv,
-                        'res_state': is_resended
-                    }}).encode()
+                        ciphertext, iv = self._crypto.encrypt(json.dumps({'type': MessageDataType.File, 'data': message_data['filename']}))
+                        # Отправляем идентификатор сообщения
+                        data_to_send = json.dumps({Message.MESSAGE_RECV_DATA: {
+                            'data': ciphertext,
+                            'iv': iv,
+                            'res_state': False
+                        }}).encode()
+                        
                     # Отправляем Recv
                     self._socket.sendall(len(data_to_send).to_bytes(self._int_size_for_message_len, byteorder='big') + data_to_send)
 
@@ -439,25 +469,32 @@ class Session:
                     ciphertext = json_data[Message.MESSAGE_RECV_DATA]['data']
                     iv = json_data[Message.MESSAGE_RECV_DATA]['iv']
 
-                    message_data = self._crypto.decrypt(ciphertext, iv)
+                    message_data = json.loads(self._crypto.decrypt(ciphertext, iv))
 
-                    is_resended = json_data[Message.MESSAGE_RECV_DATA]['res_state']
+                    if message_data['type'] == MessageDataType.Text:
+                        is_resended = json_data[Message.MESSAGE_RECV_DATA]['res_state']
+                        if not is_resended:
+                            # Пулим в ивент для обновления истории сообщений
+                            self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
+                                'username': self._interlocutor_username,
+                                'addr': self._address,
+                                'data': self._temp_buffer_of_our_messages[message_data],
+                                'res_state': is_resended
+                            }})
+                            self._event.set()
 
-                    if not is_resended:
+                            # Сохраняем сообщение в бд
+                            self._save_message_in_db([self._temp_buffer_of_our_messages[message_data]])
+
+                        del self._temp_buffer_of_our_messages[message_data]
+                    elif message_data['type'] == MessageDataType.File:
                         # Пулим в ивент для обновления истории сообщений
-                        self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
+                        self._event.data.put({Event.EVENT_FILE_WAS_ACCEPTED: {
                             'username': self._interlocutor_username,
                             'addr': self._address,
-                            'data': self._temp_buffer_of_our_messages[message_data],
-                            'res_state': is_resended
+                            'data': message_data
                         }})
                         self._event.set()
-
-                        # Сохраняем сообщение в бд
-                        self._save_message_in_db([self._temp_buffer_of_our_messages[message_data]])
-
-                    del self._temp_buffer_of_our_messages[message_data]
-
             
                 elif Message.MESSAGE_SYNC_DATA in json_data:
                     self._last_ping_time = time.time()      # Обновляем время последнего пинга
@@ -476,7 +513,7 @@ class Session:
                     # Переотправляем N месседжей из истории
                     for message in self._dialog_history:
                         if message['msg_id'] in message_data:
-                            self.send(message, is_resended=True)
+                            self.send({'data': message, 'type': MessageDataType.Text}, is_resended=True)
 
                     self._logger.debug(f"Все [{len(message_data)}] сообщения(-ий) клиенту [{self._address}][{self._interlocutor_username}] были отправлены.")
 
