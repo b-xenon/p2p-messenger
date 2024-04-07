@@ -39,7 +39,11 @@ class MessageBox(tk.Toplevel):
     def configure_window(self):
         self.resizable(False, False)
         self.geometry(self.calculate_geometry())
-        self.iconbitmap(self.icon_path)
+
+        try:
+            self.iconbitmap(self.icon_path)
+        except tk.TclError:
+            pass
 
         self.frame_main = ttk.Frame(self)
         self.frame_main.pack(expand=True, fill='both')

@@ -16,7 +16,8 @@ PING_TIMEOUT = 10
 MAX_TEXT_SYMBOLS_NUMBER = 5000
 # -------------
 
-DEFAULT_THEME = 'vista'
+from platform import system
+DEFAULT_THEME = 'vista' if system() == 'Windows' else 'clam'
 
 # ----Pathes----
 paths = {'stuff': 'stuff'}
