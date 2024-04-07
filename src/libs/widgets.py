@@ -72,6 +72,13 @@ class LimitedText(ttk.Frame):
         self._text_input_message.delete("1.0", tk.END)
         self._update_progress()
 
+    def activate(self) -> None:
+        self._text_input_message.config(state='normal')
+
+    def inactivate(self) -> None:
+        self._text_input_message.config(state='disabled')
+
+
 
 class Dialog(ttk.Frame):
     objects_counter = 0
@@ -239,11 +246,11 @@ class Dialog(ttk.Frame):
         return self._interlocutor_id
 
     def activate(self) -> None:
-        self._text_input_message.config(state='normal')
+        self._frame_input.activate()
         self._button_send_input_message.config(state='normal')
 
     def inactivate(self) -> None:
-        self._text_input_message.config(state='disabled')
+        self._frame_input.inactivate()
         self._button_send_input_message.config(state='disabled')
     
 
