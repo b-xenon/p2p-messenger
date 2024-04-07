@@ -88,7 +88,7 @@ class Session:
         self._last_ping_time = time.time()
         self._event = event
 
-        self._crypto = Encrypter()
+        self._crypto = Encrypter(database_key_path=config.paths['files']['key'])
 
         self._session_id = Session.session_counter
         Session.session_counter += 1
