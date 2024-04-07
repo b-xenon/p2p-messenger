@@ -1,5 +1,5 @@
 # ----Logger----
-LOGGER_DEBUG_MODE = False
+LOGGER_DEBUG_MODE = True
 LOGGER_WITHOUT_CONSOLE = False
 # --------------
 
@@ -16,15 +16,39 @@ PING_TIMEOUT = 10
 MAX_TEXT_SYMBOLS_NUMBER = 5000
 # -------------
 
+DEFAULT_THEME = 'vista'
+
 # ----Pathes----
 paths = {'stuff': 'stuff'}
 paths = {
     'dirs': {
+        'stuff': f'{paths["stuff"]}',
         'log_dht': f'{paths["stuff"]}/log/dht/',
         'log_client': f'{paths["stuff"]}/log/client/',
-    },
-    'files': {
-        'db': f'{paths["stuff"]}/history_chats.db'
+        'download': 'download',
+        'theme': f'{paths["stuff"]}/themes/',
+        'icons': f'{paths["stuff"]}/icons/'
     }
 }
+paths.update({
+    'files': {
+        'history': f'{paths["dirs"]["stuff"]}/history.db',
+        'icon': {
+            'main': f'{paths["dirs"]["icons"]}/icon.ico',
+            'info_l': f'{paths["dirs"]["icons"]}/info_64.ico',
+            'info_s': f'{paths["dirs"]["icons"]}/info_32.ico',
+            'warning_l': f'{paths["dirs"]["icons"]}/warn_64.ico',
+            'warning_s': f'{paths["dirs"]["icons"]}/warn_32.ico',
+            'error_l': f'{paths["dirs"]["icons"]}/err_64.ico',
+            'error_s': f'{paths["dirs"]["icons"]}/err_32.ico',
+            'success_l': f'{paths["dirs"]["icons"]}/suc_64.ico',
+            'success_s': f'{paths["dirs"]["icons"]}/suc_32.ico',
+            },
+        'config': f'{paths["dirs"]["stuff"]}/config.ini',
+        'theme': {
+            'dark': 'forest-dark',
+            'light': 'forest-light'
+        }
+    }
+})
 # --------------

@@ -4,18 +4,107 @@ from tkinter import ttk
 import random
 import string
 
+import enum
+import pyperclip
+from PIL import Image, ImageTk
+
 import pytz
 from datetime import datetime
 
-from config import MAX_TEXT_SYMBOLS_NUMBER
+from config import MAX_TEXT_SYMBOLS_NUMBER, paths
+
+class MessageType(enum.Enum):
+    ANY = 'ANY'
+    INFO = 'INFO'
+    WARNING = 'WARNING'
+    ERROR = 'ERROR'
+    SUCCESS = 'SUCCESS'
+
+class MessageBox(tk.Toplevel):
+    def __init__(self, master, title, message, message_type=MessageType.ANY):
+        super().__init__(master)
+        self.title(title)
+        self.message = message
+        self.message_type = message_type
+
+        # Это должно быть переопределено в подклассах
+        self.icon_path = paths["files"]["icon"]["main"]
+        self.image_path = paths["files"]["icon"]["info_l"]
+
+    def create_widgets(self):
+        self.configure_window()
+        self.create_message_frame()
+        self.create_buttons_frame()
+
+    def configure_window(self):
+        self.resizable(False, False)
+        self.geometry(self.calculate_geometry())
+        self.iconbitmap(self.icon_path)
+
+        self.frame_main = ttk.Frame(self)
+        self.frame_main.pack(expand=True, fill='both')
+
+    def calculate_geometry(self, width=360, height=150):
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = (screen_width - width + random.randint(-50, 50)) // 2
+        y = (screen_height - height + random.randint(-50, 50)) // 2
+        return f'{width}x{height}+{x}+{y}'
+
+    def create_message_frame(self):
+        frame = ttk.Frame(self.frame_main)
+        frame.pack(expand=True, fill=tk.BOTH)
+
+        image = ImageTk.PhotoImage(Image.open(self.image_path))
+        label_image = ttk.Label(frame, image=image)
+        label_image.image = image  # keep a reference!
+        label_image.pack(side=tk.LEFT, padx=10, pady=10)
+
+        label_text = ttk.Label(frame, text=self.message, wraplength=250)
+        label_text.pack(side=tk.LEFT, padx=10, pady=10)
+
+    def create_buttons_frame(self):
+        frame = ttk.Frame(self.frame_main)
+        frame.pack()
+
+        button_ok = ttk.Button(frame, text="OK", command=self.destroy)
+        button_ok.pack(side=tk.LEFT, padx=10, pady=10)
+
+        button_copy = ttk.Button(frame, text="Копировать", command=self.copy_text)
+        button_copy.pack(side=tk.LEFT, padx=10, pady=10)
+
+    def copy_text(self):
+        pyperclip.copy(self.message)
+
+class CustomMessageBox:
+    @staticmethod
+    def show(master, title, message, message_type=MessageType.ANY):
+        if message_type == MessageType.INFO:
+            icon = paths["files"]["icon"]["info_l"]
+        elif message_type == MessageType.WARNING:
+            icon = paths["files"]["icon"]["warning_l"]
+        elif message_type == MessageType.ERROR:
+            icon = paths["files"]["icon"]["error_l"]
+        elif message_type == MessageType.SUCCESS:
+            icon = paths["files"]["icon"]["success_l"]
+        else:
+            icon = paths["files"]["icon"]["main"]
+
+        # Создаем и показываем конкретный тип сообщения
+        message_box = MessageBox(master, title, message, message_type)
+        message_box.icon_path = paths["files"]["icon"]["main"]
+        message_box.image_path = icon
+        message_box.create_widgets()
+
 
 class LimitedText(ttk.Frame):
     def __init__(self, master, max_size, **kwargs) -> None:
         super().__init__(master, **kwargs)
 
+        self._master = master
         self._max_size = max_size
 
-        self._text_input_message = tk.Text(self, height=4)
+        self._text_input_message = tk.Text(self, height=4, font=('Calibri', 10))
         self._progressbar = ttk.Progressbar(self, mode='determinate', maximum=max_size, value=0)
 
         self._text_input_message.pack(fill='x', padx=5, pady=5)
@@ -103,7 +192,7 @@ class Dialog(ttk.Frame):
 
         # Создание виджетов Text и Button
         self._frame_dialog = ttk.Frame(self)
-        self._text_dialog = tk.Text(self._frame_dialog, state='disabled', height=20)
+        self._text_dialog = tk.Text(self._frame_dialog, state='disabled', height=20, font=('Calibri', 10))
         self._scrollbar = tk.Scrollbar(self._frame_dialog, command=self._text_dialog.yview)
         
         self._frame_input = LimitedText(self, MAX_TEXT_SYMBOLS_NUMBER)
@@ -111,7 +200,7 @@ class Dialog(ttk.Frame):
         self._button_send_input_message = ttk.Button(self, text="Отправить", command=self.send_message)
         
         # Определяем тег для жирного шрифта
-        self._text_dialog.tag_configure("bold", font=('Arial', 8, 'bold'))
+        self._text_dialog.tag_configure("bold", font=('Calibri', 10, 'bold'))
 
         # Размещение виджетов в окне
         self._frame_dialog.pack(fill='both', expand=True)
@@ -124,7 +213,17 @@ class Dialog(ttk.Frame):
 
         # Настраиваем виджет Text для работы со Scrollbar
         self._text_dialog.config(yscrollcommand=self._scrollbar.set)
+
+        self._change_color()
+        self._master.bind("<<ThemeChanged>>", self._change_color)
    
+    def _change_color(self, *args):
+        _style = ttk.Style()
+        bg_color = _style.lookup('TFrame', 'background')
+        fg_color = _style.lookup('TLabel', 'foreground')
+
+        self._frame_input._text_input_message.config(bg=bg_color, fg=fg_color)
+        self._text_dialog.config(bg=bg_color, fg=fg_color)
 
     def send_message(self) -> None:
         # Получаем текст из Text widget

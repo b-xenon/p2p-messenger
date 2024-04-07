@@ -67,11 +67,13 @@ class DHT_Client:
         return json.loads(data) if data else None
     
     def stop(self):
-        self.server.stop()
-        self.loop.run_until_complete(self.loop.shutdown_asyncgens())  # Закрыть асинхронные генераторы
-        # self.loop.run_until_complete(asyncio.sleep(1))
-        self.loop.close()
-        
+        try:
+            self.server.stop()
+            self.loop.run_until_complete(self.loop.shutdown_asyncgens())  # Закрыть асинхронные генераторы
+            self.loop.run_until_complete(asyncio.sleep(1))
+            self.loop.close()
+        except RuntimeError:
+            pass
 
 class Session:
     session_counter = 0
@@ -147,7 +149,7 @@ class Session:
         try:
             table_name = f"table_{self._interlocutor_username}"
             # Подключение к базе данных (или её создание, если она не существует)
-            conn = sqlite3.connect(config.paths['files']['db'])
+            conn = sqlite3.connect(config.paths['files']['history'])
             cur = conn.cursor()
 
             # Создание таблицы
@@ -184,7 +186,7 @@ class Session:
             # Сохранение изменений и закрытие соединения с базой данных
             conn.commit()
         except sqlite3.Error as e:
-            self._logger.error(f'Не удалось подключиться к базе данных по пути [{config.paths["files"]["db"]}]. Ошибка [{e}].')
+            self._logger.error(f'Не удалось подключиться к базе данных по пути [{config.paths["files"]["history"]}]. Ошибка [{e}].')
         finally:
             if conn:
                 conn.close()
@@ -200,7 +202,7 @@ class Session:
         try:
             table_name = f"table_{self._interlocutor_username}"
             self._logger.debug(f"Добавляю [{len(_messages)}] сообщение(-ий) в базу данных для клиента [{self._address}][{self._interlocutor_username}].")
-            conn = sqlite3.connect(config.paths['files']['db'])
+            conn = sqlite3.connect(config.paths['files']['history'])
             c = conn.cursor()
              # SQL-запрос для вставки данных
             query = f"INSERT INTO {table_name} (sync_state, id, author, message, time) VALUES (?, ?, ?, ?, ?)"
@@ -537,13 +539,14 @@ class Session:
             self._session_is_active = False
             self._socket.close()
 
-            self._event.data.put({Event.EVENT_DISCONNECT: {
-                'username': self._interlocutor_username,
-                'addr': self._address
-            }})
-            self._event.set()
+            if self._interlocutor_username is not None:
+                self._event.data.put({Event.EVENT_DISCONNECT: {
+                    'username': self._interlocutor_username,
+                    'addr': self._address
+                }})
+                self._event.set()
 
-            self._save_message_in_db(list(self._temp_buffer_of_our_messages.values()), is_temp_buffer_elements=True)
+                self._save_message_in_db(list(self._temp_buffer_of_our_messages.values()), is_temp_buffer_elements=True)
 
             try:
                 self._thread_client_handler.join()

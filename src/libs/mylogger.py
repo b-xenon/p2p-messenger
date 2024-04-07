@@ -13,7 +13,7 @@ class MyLoggerType:
 class MyLogger:
     def __init__(self, logger_name: str, logger_type: int, logger_dir: str) -> None:
         self.logger = logging.getLogger(logger_name)
-        self._logger_format = '[%(levelname)s: [%(name)s] | [%(thread)d] - %(asctime)s] %(message)s'
+        self._logger_format = '[%(levelname)s: [%(name)s] | [%(threadName)s] - %(asctime)s] %(message)s' # [%(thread)d]
 
         self._setup_logger(logger_type, logger_dir)
 
