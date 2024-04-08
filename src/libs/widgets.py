@@ -316,9 +316,14 @@ class Dialog(ttk.Frame):
             self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
 
             self._messages.append(message)
+            self._messages.sort(key=lambda x: x['time'])
 
     def load_history(self, history: list[dict]):
         if history:
+            history = sorted(history, key=lambda x: x['time'])
+            if not self._messages:
+                self._messages.sort(key=lambda x: x['time'])
+
             counter = self._message_id_counter
             for message in history:
                 message_time = datetime.fromisoformat(message['time'])

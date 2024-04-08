@@ -103,6 +103,7 @@ class Session:
         Session.session_counter += 1
 
         self._dialog_history = []
+        self._dialog_history_ids = []
         self._temp_buffer_of_our_messages = {}
 
         self._int_size_for_message_len = 4
@@ -200,6 +201,7 @@ class Session:
         _messages = []
         for msg in messages:
             _messages.append((not is_temp_buffer_elements, self._crypto.encode_data(json.dumps(msg))))
+            self._dialog_history_ids.append(msg['msg_id'])
 
         try:
             table_name = f"table_{self._interlocutor_username}"
@@ -329,11 +331,11 @@ class Session:
                     
                     self._load_dialog_history()
 
-                    msg_ids = []
+                    self._dialog_history_ids = []
                     for msg in self._dialog_history:
-                        msg_ids.append(msg['msg_id'])
+                        self._dialog_history_ids.append(msg['msg_id'])
 
-                    ciphertext, iv = self._crypto.encrypt(json.dumps(msg_ids))
+                    ciphertext, iv = self._crypto.encrypt(json.dumps(self._dialog_history_ids))
 
                     data_to_send = json.dumps({Message.MESSAGE_ACK: {
                         'data': ciphertext,
@@ -367,6 +369,10 @@ class Session:
                     message_data = json.loads(self._crypto.decrypt(ciphertext, iv))
 
                     self._load_dialog_history()
+
+                    self._dialog_history_ids = []
+                    for msg in self._dialog_history:
+                        self._dialog_history_ids.append(msg['msg_id'])
 
                     self._event.data.put({Event.EVENT_CONNECT: {
                         'username': self._interlocutor_username,
@@ -416,10 +422,8 @@ class Session:
 
                         already_exist = False
                         if is_resended:
-                            for msg in self._dialog_history:
-                                if new_message_id == msg['msg_id']:
-                                    already_exist = True
-                                    break
+                            if new_message_id in self._dialog_history_ids:
+                                already_exist = True
                         
                         if not already_exist:
                             # Пулим в ивент для обновления истории сообщений
