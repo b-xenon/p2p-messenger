@@ -97,6 +97,8 @@ class Session:
         self._last_ping_time = time.time()
         self._event = event
 
+        self._table_name = ''
+
         self._crypto = Encrypter(database_key_path=config.paths['files']['key'])
 
         self._session_id = Session.session_counter
@@ -158,17 +160,27 @@ class Session:
         self._logger.debug(f'Подключаюсь к базе данных и загружаю историю диалога с клиентом [{self._address}][{self._interlocutor_username}].')
         
         try:
-            table_name = f"table_{self._interlocutor_username}"
+            table_name1 = f'table_{self._our_username}_{self._interlocutor_username}'
+            table_name2 = f'table_{self._interlocutor_username}_{self._our_username}'
+            
             # Подключение к базе данных (или её создание, если она не существует)
             conn = sqlite3.connect(config.paths['files']['history'])
             cur = conn.cursor()
 
-            # Создание таблицы
-            req = f'CREATE TABLE IF NOT EXISTS {table_name} (sync_state INTEGER, data BLOB)'
+            req = f"SELECT name FROM sqlite_master WHERE type='table' AND (name='{table_name1}' OR name='{table_name2}');"
             cur.execute(req)
+            tables = cur.fetchall()
+
+            if not tables:
+                # Создание таблицы
+                req = f'CREATE TABLE {table_name1} (sync_state INTEGER, data BLOB)'
+                cur.execute(req)
+                self._table_name = table_name1
+            else:
+                self._table_name = tables[0][0]
 
             # Выполнение запроса на выборку всех записей из таблицы
-            req = f"SELECT * FROM {table_name}"
+            req = f"SELECT * FROM {self._table_name}"
             cur.execute(req)
             
             # Получение всех результатов
@@ -186,7 +198,7 @@ class Session:
             self._logger.debug(f'Было загружено [{len(self._dialog_history)}] сообщения(-ий) для клиента [{self._address}][{self._interlocutor_username}] из истории.')
             self._logger.debug(f'Было загружено [{len(self._temp_buffer_of_our_messages)}] сообщения(-ий) для клиента [{self._address}][{self._interlocutor_username}], требующих повторной отправки.')
 
-            req = f"DELETE FROM {table_name} WHERE sync_state = ?"
+            req = f"DELETE FROM {self._table_name} WHERE sync_state = ?"
             cur.execute(req, (False,))
 
             # Сохранение изменений и закрытие соединения с базой данных
@@ -204,12 +216,11 @@ class Session:
             self._dialog_history_ids.append(msg['msg_id'])
 
         try:
-            table_name = f"table_{self._interlocutor_username}"
             self._logger.debug(f"Добавляю [{len(_messages)}] сообщение(-ий) в базу данных для клиента [{self._address}][{self._interlocutor_username}].")
             conn = sqlite3.connect(config.paths['files']['history'])
             c = conn.cursor()
              # SQL-запрос для вставки данных
-            query = f"INSERT INTO {table_name} (sync_state, data) VALUES (?, ?)"
+            query = f"INSERT INTO {self._table_name} (sync_state, data) VALUES (?, ?)"
             
             # Вставляем множество записей
             c.executemany(query, _messages)

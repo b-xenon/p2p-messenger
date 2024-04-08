@@ -132,7 +132,7 @@ class WinApp(TkinterDnD.Tk):
                                                    textvariable=self._entry_another_client_key_var)
         self._entry_another_client_key.pack(padx=10, pady=10)
 
-        self._button_connect_to_another_client = ttk.Button(self._frame_connect_to_another_client, text='Подключиться',
+        self._button_connect_to_another_client = ttk.Button(self._frame_connect_to_another_client, text='Подключиться/Отключиться',
                                                              width=30, command=self._connect_to_another_client)
         self._button_connect_to_another_client.pack(padx=10, pady=10)
 
@@ -368,7 +368,15 @@ class WinApp(TkinterDnD.Tk):
             CustomMessageBox.show(self, 'Ошибка', f"Введенный ключ входит в число недопустимых! Недопустимые ключи [{self._unavaliable_dht_keys}].", MessageType.ERROR)
             return
         
-        threading.Thread(target=self._connect_to_another_client_with_dht, args=(another_client, ), daemon=True).start()
+        threading.Thread(target=self._connect_or_disconect, args=(another_client, ), daemon=True).start()
+
+    def _connect_or_disconect(self, another_client):
+        if another_client in self._active_dialogs:
+            self._logger.debug(f"Отключаюсь от {another_client}.")
+            self._our_client.get_session(self._active_dialogs[another_client]['session_id']).close()
+            CustomMessageBox.show(self, 'Инфо', f'Общение с [{another_client}] завершено!', MessageType.SUCCESS)
+            return
+        self._connect_to_another_client_with_dht(another_client)
 
     def _connect_to_another_client_with_dht(self, another_client):
         try:
@@ -387,11 +395,6 @@ class WinApp(TkinterDnD.Tk):
         if another_client_ip == self._ip_address:
             self._logger.error("Пока нельзя подключаться самому к себе!")
             CustomMessageBox.show(self, 'Ошибка', "Пока нельзя подключаться самому к себе!", MessageType.ERROR)
-            return
-
-        if another_client in self._active_dialogs:
-            self._logger.debug(f"Диалог с клиентом {another_client} уже открыт.")
-            CustomMessageBox.show(self, 'Ошибка', f"Диалог с клиентом {another_client} уже открыт.", MessageType.ERROR)
             return
         
         # установаем соединение
