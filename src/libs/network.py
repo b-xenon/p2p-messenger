@@ -152,7 +152,7 @@ class Session:
         self._logger.debug(f"Отправил Send сообщение клиенту [{self._address}][{self._interlocutor_username}] размером [{len(data_to_send)}].")
 
         if message['type'] == MessageDataType.Text:
-            self._temp_buffer_of_our_messages[message['msg_id']] = message
+            self._temp_buffer_of_our_messages[message['data']['msg_id']] = message
     
     def _load_dialog_history(self) -> None:
         self._logger.debug(f'Подключаюсь к базе данных и загружаю историю диалога с клиентом [{self._address}][{self._interlocutor_username}].')
