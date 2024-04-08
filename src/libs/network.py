@@ -484,15 +484,15 @@ class Session:
                             self._event.data.put({Event.EVENT_ADD_SEND_DATA: {
                                 'username': self._interlocutor_username,
                                 'addr': self._address,
-                                'data': self._temp_buffer_of_our_messages[message_data],
+                                'data': self._temp_buffer_of_our_messages[message_data['data']],
                                 'res_state': is_resended
                             }})
                             self._event.set()
 
                             # Сохраняем сообщение в бд
-                            self._save_message_in_db([self._temp_buffer_of_our_messages[message_data]])
+                            self._save_message_in_db([self._temp_buffer_of_our_messages[message_data['data']]])
+                        del self._temp_buffer_of_our_messages[message_data['data']]
 
-                        del self._temp_buffer_of_our_messages[message_data]
                     elif message_data['type'] == MessageDataType.File:
                         # Пулим в ивент для обновления истории сообщений
                         self._event.data.put({Event.EVENT_FILE_WAS_ACCEPTED: {
