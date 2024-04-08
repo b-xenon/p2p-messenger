@@ -321,7 +321,7 @@ class Dialog(ttk.Frame):
     def load_history(self, history: list[dict]):
         if history:
             history = sorted(history, key=lambda x: x['time'])
-            if not self._messages:
+            if self._messages:
                 self._messages.sort(key=lambda x: x['time'])
 
             counter = self._message_id_counter
