@@ -353,7 +353,7 @@ class Dialog(ttk.Frame):
                 if not was_inserted:
                     was_inserted = True
                     formatted_message = f"[{recived_message_time.strftime('%d.%m.%Y - %H:%M:%S')}] {recv_message['author']}: {recv_message['msg']}\n"
-                    self._add_message_to_dialog(formatted_message, len(formatted_message.split(':')[0]) + 1, pos_in_text)
+                    self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1, pos_in_text)
                     break
 
             if not was_inserted:

@@ -81,7 +81,7 @@ class DHT_Client:
             self.server.stop()
             self.loop.run_until_complete(asyncio.sleep(1))
             self.loop.close()
-        except RuntimeError:
+        except Exception:
             pass
 
 class Session:
