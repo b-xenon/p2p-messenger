@@ -99,7 +99,7 @@ class Session:
 
         self._table_name = ''
 
-        self._crypto = Encrypter(database_key_path=config.paths['files']['key'])
+        self._crypto = Encrypter(database_key_path=config.paths['files']['db_key'])
 
         self._session_id = Session.session_counter
         Session.session_counter += 1

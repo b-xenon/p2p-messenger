@@ -1,8 +1,9 @@
 /p2p-venv
+.conda
 stuff/log
 stuff/history.db
 stuff/config.ini
-stuff/key.key
+stuff/keys
 download
 
 __pycache__/

@@ -10,7 +10,7 @@ import re
 import json
 import config
 from libs.mylogger import MyLogger, MyLoggerType
-from libs.widgets import Chats, CustomMessageBox, MessageType
+from libs.widgets import Chats, CustomMessageBox, CustomMessageType
 from libs.network import Client, Event, MessageDataType
 
 class WinApp(TkinterDnD.Tk):
@@ -240,7 +240,7 @@ class WinApp(TkinterDnD.Tk):
     def _set_dht_data(self) -> None:
         if not self._entry_dht_key_var.get():
             self._logger.error("Перед отправкой необходимо ввести свой ключ устройства!")
-            CustomMessageBox.show(self, 'Ошибка', "Перед отправкой необходимо ввести свой ключ устройства!", MessageType.ERROR)
+            CustomMessageBox.show(self, 'Ошибка', "Перед отправкой необходимо ввести свой ключ устройства!", CustomMessageType.ERROR)
             return
         
         dht_key = self._entry_dht_key_var.get()
@@ -248,12 +248,12 @@ class WinApp(TkinterDnD.Tk):
 
         if dht_key != stripped_dht_key:
             self._logger.error(f"В введенном ключе есть недопустимые символы! Результат проверки [{stripped_dht_key}].")
-            CustomMessageBox.show(self, 'Ошибка', f"В введенном ключе есть недопустимые символы! Результат проверки [{stripped_dht_key}].", MessageType.ERROR)
+            CustomMessageBox.show(self, 'Ошибка', f"В введенном ключе есть недопустимые символы! Результат проверки [{stripped_dht_key}].", CustomMessageType.ERROR)
             return
 
         if not self._check_is_avaliable_username(stripped_dht_key):
             self._logger.error(f"Введенный ключ входит в число недопустимых! Недопустимые ключи [{self._unavaliable_dht_keys}].")
-            CustomMessageBox.show(self, 'Ошибка', f"Введенный ключ входит в число недопустимых! Недопустимые ключи [{self._unavaliable_dht_keys}].", MessageType.ERROR)
+            CustomMessageBox.show(self, 'Ошибка', f"Введенный ключ входит в число недопустимых! Недопустимые ключи [{self._unavaliable_dht_keys}].", CustomMessageType.ERROR)
             return
 
         self._entry_enter_dht_key.config(state='disabled')
@@ -339,7 +339,7 @@ class WinApp(TkinterDnD.Tk):
                     elif Event.EVENT_FILE_WAS_ACCEPTED in event_data:
                         event_data = event_data[Event.EVENT_FILE_WAS_ACCEPTED]
                         interlocutor_username = event_data['username']
-                        CustomMessageBox.show(self, 'Инфо', f'Файл [{event_data["data"]}] успешно доставлен до адрессата [{interlocutor_username}].', MessageType.SUCCESS)
+                        CustomMessageBox.show(self, 'Инфо', f'Файл [{event_data["data"]}] успешно доставлен до адрессата [{interlocutor_username}].', CustomMessageType.SUCCESS)
 
                     elif Event.EVENT_CLOSE in event_data:
                         return
@@ -354,18 +354,18 @@ class WinApp(TkinterDnD.Tk):
     def _connect_to_another_client(self):
         if not self._entry_dht_key_var.get() or self._button_enter_dht_key['state'] == tkinter.NORMAL:
             self._logger.error("Перед подключением необходимо ввести свой ключ устройства!")
-            CustomMessageBox.show(self, 'Ошибка', "Перед подключением необходимо ввести свой ключ устройства!", MessageType.ERROR)
+            CustomMessageBox.show(self, 'Ошибка', "Перед подключением необходимо ввести свой ключ устройства!", CustomMessageType.ERROR)
             return
 
         another_client = self._entry_another_client_key_var.get() 
         if not another_client:
             self._logger.error("Перед подключением необходимо ввести ключ другого устройства!")
-            CustomMessageBox.show(self, 'Ошибка', "Перед подключением необходимо ввести ключ другого устройства!", MessageType.ERROR)
+            CustomMessageBox.show(self, 'Ошибка', "Перед подключением необходимо ввести ключ другого устройства!", CustomMessageType.ERROR)
             return
         
         if not self._check_is_avaliable_username(another_client):
             self._logger.error(f"Введенный ключ входит в число недопустимых! Недопустимые ключи [{self._unavaliable_dht_keys}].")
-            CustomMessageBox.show(self, 'Ошибка', f"Введенный ключ входит в число недопустимых! Недопустимые ключи [{self._unavaliable_dht_keys}].", MessageType.ERROR)
+            CustomMessageBox.show(self, 'Ошибка', f"Введенный ключ входит в число недопустимых! Недопустимые ключи [{self._unavaliable_dht_keys}].", CustomMessageType.ERROR)
             return
         
         threading.Thread(target=self._connect_or_disconect, args=(another_client, ), daemon=True).start()
@@ -374,7 +374,7 @@ class WinApp(TkinterDnD.Tk):
         if another_client in self._active_dialogs:
             self._logger.debug(f"Отключаюсь от {another_client}.")
             self._our_client.get_session(self._active_dialogs[another_client]['session_id']).close()
-            CustomMessageBox.show(self, 'Инфо', f'Общение с [{another_client}] завершено!', MessageType.SUCCESS)
+            CustomMessageBox.show(self, 'Инфо', f'Общение с [{another_client}] завершено!', CustomMessageType.SUCCESS)
             return
         self._connect_to_another_client_with_dht(another_client)
 
@@ -383,18 +383,18 @@ class WinApp(TkinterDnD.Tk):
             another_client_ip = self._our_client.dht.get_data(another_client)['ip']
         except (OSError, TypeError, KeyError) as e:
             self._logger.error(f'Не удалось получить ip клиента [{another_client}]. Ошибка [{e}].')
-            CustomMessageBox.show(self, 'Ошибка', f'Не удалось получить ip клиента [{another_client}]. Ошибка [{e}].', MessageType.ERROR)
+            CustomMessageBox.show(self, 'Ошибка', f'Не удалось получить ip клиента [{another_client}]. Ошибка [{e}].', CustomMessageType.ERROR)
             return
 
         if not self._our_client.is_ipv4(another_client_ip):
             self._logger.error(f"Введен некорректный ip-адрес [{another_client_ip}]!"
                                f" Ip-адрес должен быть в формате IPv4!")
-            CustomMessageBox.show(self, 'Ошибка', f"Введен некорректный ip-адрес [{another_client_ip}]! Ip-адрес должен быть в формате IPv4!", MessageType.ERROR)
+            CustomMessageBox.show(self, 'Ошибка', f"Введен некорректный ip-адрес [{another_client_ip}]! Ip-адрес должен быть в формате IPv4!", CustomMessageType.ERROR)
             return
         
         if another_client_ip == self._ip_address:
             self._logger.error("Пока нельзя подключаться самому к себе!")
-            CustomMessageBox.show(self, 'Ошибка', "Пока нельзя подключаться самому к себе!", MessageType.ERROR)
+            CustomMessageBox.show(self, 'Ошибка', "Пока нельзя подключаться самому к себе!", CustomMessageType.ERROR)
             return
         
         # установаем соединение
@@ -411,7 +411,7 @@ class WinApp(TkinterDnD.Tk):
             os.makedirs(f"{config.paths['dirs']['download']}", exist_ok=True)
             with open(f"{config.paths['dirs']['download']}/{data['filename']}", 'wb') as file:
                 file.write(base64.b64decode(data['raw_data']))
-            CustomMessageBox.show(self, 'Инфо', f'Получен файл [{data["filename"]}] от [{client_name}].', MessageType.SUCCESS)
+            CustomMessageBox.show(self, 'Инфо', f'Получен файл [{data["filename"]}] от [{client_name}].', CustomMessageType.SUCCESS)
 
     def _create_config(self) -> None:
         try:
@@ -431,7 +431,7 @@ class WinApp(TkinterDnD.Tk):
         
         def __close_program():
             self._logger.debug("Завершаю программу...")
-            CustomMessageBox.show(self, 'Инфо', f"Подождите, идет завершение программы...", MessageType.INFO)
+            CustomMessageBox.show(self, 'Инфо', f"Подождите, идет завершение программы...", CustomMessageType.INFO)
             self._our_client.dht.stop()
             self._our_client.close()
             self._create_config()

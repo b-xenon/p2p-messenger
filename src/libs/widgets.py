@@ -7,33 +7,43 @@ import random
 import string
 
 import base64
-import enum
 import pyperclip
 from PIL import Image, ImageTk
+
+from typing import Any
 
 import pytz
 from datetime import datetime
 
-from config import MAX_TEXT_SYMBOLS_NUMBER, paths, MAX_FILE_SIZE
-from libs.network import MessageDataType
+from config import config
+from message import *
 
-class MessageType(enum.Enum):
+class CustomMessageType:
     ANY = 'ANY'
     INFO = 'INFO'
     WARNING = 'WARNING'
     ERROR = 'ERROR'
     SUCCESS = 'SUCCESS'
 
-class MessageBox(tk.Toplevel):
-    def __init__(self, master, title, message, message_type=MessageType.ANY):
+class _MessageBox(tk.Toplevel):
+    def __init__(self, master: Any, title: str, message: str, message_type: CustomMessageType = CustomMessageType.ANY):
         super().__init__(master)
         self.title(title)
-        self.message = message
-        self.message_type = message_type
+        self._message = message
+        self._message_type = message_type
 
-        # Это должно быть переопределено в подклассах
-        self.icon_path = paths["files"]["icon"]["main"]
-        self.image_path = paths["files"]["icon"]["info_l"]
+        if message_type == CustomMessageType.INFO:
+            self._image_path = config.FILES.ICONS.INFO_L
+        elif message_type == CustomMessageType.WARNING:
+            self._image_path = config.FILES.ICONS.WARNING_L
+        elif message_type == CustomMessageType.ERROR:
+            self._image_path = config.FILES.ICONS.ERROR_L
+        elif message_type == CustomMessageType.SUCCESS:
+            self._image_path = config.FILES.ICONS.SUCCESS_L
+        else:
+            self._image_path = config.FILES.ICONS.MAIN
+
+        self._icon_path = config.FILES.ICONS.MAIN
 
     def create_widgets(self):
         self.configure_window()
@@ -45,12 +55,12 @@ class MessageBox(tk.Toplevel):
         self.geometry(self.calculate_geometry())
 
         try:
-            self.iconbitmap(self.icon_path)
+            self.iconbitmap(self._icon_path)
         except tk.TclError:
             pass
 
-        self.frame_main = ttk.Frame(self)
-        self.frame_main.pack(expand=True, fill='both')
+        self._frame_main = ttk.Frame(self)
+        self._frame_main.pack(expand=True, fill='both')
 
     def calculate_geometry(self, width=360, height=150):
         screen_width = self.winfo_screenwidth()
@@ -60,19 +70,19 @@ class MessageBox(tk.Toplevel):
         return f'{width}x{height}+{x}+{y}'
 
     def create_message_frame(self):
-        frame = ttk.Frame(self.frame_main)
+        frame = ttk.Frame(self._frame_main)
         frame.pack(expand=True, fill=tk.BOTH)
 
-        image = ImageTk.PhotoImage(Image.open(self.image_path))
+        image = ImageTk.PhotoImage(Image.open(self._image_path))
         label_image = ttk.Label(frame, image=image)
         label_image.image = image  # keep a reference!
         label_image.pack(side=tk.LEFT, padx=10, pady=10)
 
-        label_text = ttk.Label(frame, text=self.message, wraplength=250)
+        label_text = ttk.Label(frame, text=self._message, wraplength=250)
         label_text.pack(side=tk.LEFT, padx=10, pady=10)
 
     def create_buttons_frame(self):
-        frame = ttk.Frame(self.frame_main)
+        frame = ttk.Frame(self._frame_main)
         frame.pack()
 
         button_ok = ttk.Button(frame, text="OK", command=self.destroy)
@@ -82,31 +92,25 @@ class MessageBox(tk.Toplevel):
         button_copy.pack(side=tk.LEFT, padx=10, pady=10)
 
     def copy_text(self):
-        pyperclip.copy(self.message)
+        pyperclip.copy(self._message)
 
 class CustomMessageBox:
     @staticmethod
-    def show(master, title, message, message_type=MessageType.ANY):
-        if message_type == MessageType.INFO:
-            icon = paths["files"]["icon"]["info_l"]
-        elif message_type == MessageType.WARNING:
-            icon = paths["files"]["icon"]["warning_l"]
-        elif message_type == MessageType.ERROR:
-            icon = paths["files"]["icon"]["error_l"]
-        elif message_type == MessageType.SUCCESS:
-            icon = paths["files"]["icon"]["success_l"]
-        else:
-            icon = paths["files"]["icon"]["main"]
-
+    def show(master, title, message, message_type=CustomMessageType.ANY):
         # Создаем и показываем конкретный тип сообщения
-        message_box = MessageBox(master, title, message, message_type)
-        message_box.icon_path = paths["files"]["icon"]["main"]
-        message_box.image_path = icon
-        message_box.create_widgets()
+        _MessageBox(master, title, message, message_type).create_widgets()
 
 
 class LimitedText(ttk.Frame):
-    def __init__(self, master, max_size, **kwargs) -> None:
+    def __init__(self, master: Any, max_size: int, **kwargs) -> None:
+        """
+            Инициализация компонента с ограниченным текстовым полем.
+
+        Args:
+            master: Родительский виджет.
+            max_size: Максимальное количество символов.
+            **kwargs: Дополнительные аргументы ttk.Frame.
+        """
         super().__init__(master, **kwargs)
 
         self._master = master
@@ -122,7 +126,13 @@ class LimitedText(ttk.Frame):
         self._text_input_message.bind('<Control-v>', self._handle_paste)
         self._text_input_message.bind('<KeyRelease>', self._update_progress)
 
-    def _check_limit(self, event):
+    def _check_limit(self, event) -> None:
+        """
+            Проверка лимита символов при нажатии клавиши.
+
+        Args:
+            event: Событие нажатия клавиши.
+        """
         # Получаем текущее содержимое виджета
         current_text = self._text_input_message.get('1.0', 'end-1c')
 
@@ -134,7 +144,13 @@ class LimitedText(ttk.Frame):
         if len(current_text) >= self._max_size:
             return 'break'
 
-    def _handle_paste(self, event):
+    def _handle_paste(self, event) -> str:
+        """
+            Обработка вставки текста из буфера обмена.
+
+        Args:
+            event: Событие вставки.
+        """
         try:
             clipboard_text = self._text_input_message.clipboard_get()
         except tk.TclError:
@@ -158,29 +174,56 @@ class LimitedText(ttk.Frame):
         self._text_input_message.insert(tk.INSERT, paste_text)
         return 'break'  # Предотвращаем дальнейшую обработку события (вставку)
 
-    def _update_progress(self, event=None):
+    def _update_progress(self, event=None) -> None:
+        """
+            Обновление индикатора заполнения.
+        """
         current_text_length = len(self._text_input_message.get('1.0', 'end-1c'))
         self._progressbar['value'] = current_text_length
 
     def get_text(self) -> str:
+        """
+            Возвращает текст из текстового поля.
+
+        Returns:
+            Строка текста.
+        """
         return self._text_input_message.get("1.0", tk.END)
     
     def del_text(self) -> None:
+        """
+            Очищает текстовое поле и обновляет индикатор заполнения.
+        """
         self._text_input_message.delete("1.0", tk.END)
         self._update_progress()
 
     def activate(self) -> None:
+        """
+            Делает текстовое поле активным для ввода.
+        """
         self._text_input_message.config(state='normal')
 
     def inactivate(self) -> None:
+        """
+            Делает текстовое поле неактивным для ввода.
+        """
         self._text_input_message.config(state='disabled')
-
-
-
+    
 class Dialog(ttk.Frame):
-    objects_counter = 0
+    objects_counter = 0 # Счетчик объектов класса для присвоения уникальных ID
 
-    def __init__(self, master, interlocutor_id, username=None, dialog_name=None, command=None, **kwargs) -> None:
+    def __init__(self, master: Any, interlocutor_id: str, username: str = None, dialog_name: str = None, command: Any = None, **kwargs) -> None:
+        """
+            Инициализация диалогового окна.
+
+        Args:
+            master: Родительский виджет.
+            interlocutor_id: ID собеседника.
+            username: Имя пользователя. Если None, будет сгенерировано случайное имя.
+            dialog_name: Название диалога. Если None, будет сгенерировано случайное название.
+            command: Функция обратного вызова для обработки отправленных сообщений.
+            **kwargs: Дополнительные аргументы для ttk.Frame.
+        """
         super().__init__(master, **kwargs)
 
         self._master = master
@@ -194,135 +237,186 @@ class Dialog(ttk.Frame):
         self._id = Dialog.objects_counter
         Dialog.objects_counter += 1
 
-        # {'author': None, 'msg': None, 'msg_id': None, 'time': None }
-        self._messages = []
-        self._message_id_counter = 0
+        self._messages: list[MessageTextData] = []  # Список сообщений в диалоге
+        self._message_id_counter = 0  # Счетчик ID сообщений
 
-        # Создание виджетов Text и Button
+        self._setup_widgets()  # Метод установки виджетов
+        self._bind_events()  # Метод привязки событий
+   
+    def _setup_widgets(self) -> None:
+        """
+            Настройка виджетов диалогового окна.
+        """
         self._frame_dialog = ttk.Frame(self)
         self._text_dialog = tk.Text(self._frame_dialog, state='disabled', height=20, font=('Calibri', 10))
         self._scrollbar = tk.Scrollbar(self._frame_dialog, command=self._text_dialog.yview)
-        
-        self._frame_input = LimitedText(self, MAX_TEXT_SYMBOLS_NUMBER)
-
+        self._frame_input = LimitedText(self, config.WIDGETS.MAX_TEXT_SYMBOLS_NUMBER)
         self._button_send_input_message = ttk.Button(self, text="Отправить", command=self.send_message)
-        
-        # Определяем тег для жирного шрифта
-        self._text_dialog.tag_configure("bold", font=('Calibri', 10, 'bold'))
 
-        # Размещение виджетов в окне
         self._frame_dialog.pack(fill='both', expand=True)
         self._text_dialog.pack(side=tk.LEFT, fill='both', expand=True, padx=5, pady=5)
         self._scrollbar.pack(side=tk.LEFT, fill=tk.Y)
-
         self._frame_input.pack(fill='both', expand=True)
-
         self._button_send_input_message.pack(fill='both', expand=True, padx=5)
 
-        # Настраиваем виджет Text для работы со Scrollbar
         self._text_dialog.config(yscrollcommand=self._scrollbar.set)
+        self._text_dialog.tag_configure("bold", font=('Calibri', 10, 'bold'))
 
-        self._change_color()
+    def _bind_events(self):
+        """
+            Привязка событий к виджетам.
+        """
         self._master.bind("<<ThemeChanged>>", self._change_color)
-
-        # register the listbox as a drop target
+        # Привязка события перетаскивания файла в текстовое поле
         self._text_dialog.drop_target_register(DND_FILES)
         self._text_dialog.dnd_bind('<<Drop>>', self._drag_n_drop_event_handler)
-   
+
     def _drag_n_drop_event_handler(self, event):
+        """
+            Обрабатывает перетаскивание файлов в текстовое поле, проверяя их и отправляя данные файла.
+
+            При успешном перетаскивании файла (или файлов) в текстовое поле, данный метод
+            читает файл, проверяет его размер и, если все условия соблюдены, передает данные файла
+            в пользовательскую функцию обратного вызова (_command).
+
+        Args:
+            event: Событие перетаскивания файла.
+        """
+        # Проверяем, активна ли кнопка "Отправить"
         if self._button_send_input_message['state'] == 'disabled':
             return
 
+        # Разбиваем данные события на список путей к файлам
         files = self.tk.splitlist(event.data)
-        for f in files:
-            if not os.path.isfile(f):
-                CustomMessageBox.show(self._master, 'Ошибка', f'Можно передавать только файлы!', MessageType.ERROR)
+        for file in files:
+            # Проверяем, является ли путь файлом
+            if not os.path.isfile(file):
+                CustomMessageBox.show(self._master, 'Ошибка', f'Можно передавать только файлы!', CustomMessageType.ERROR)
                 continue
-            with open(f'{f}', 'rb') as file:
+
+            # Читаем данные файла
+            with open(file, 'rb') as bin_file:
                 file_data = b''
-                _eof = False
-                while not _eof:
-                    _data = file.read(1024)
-                    
-                    if not _data:
-                        _eof = True
-                    
-                    file_data += _data
-                    if len(file_data) > MAX_FILE_SIZE:
-                        CustomMessageBox.show(self._master, 'Ошибка', f'Слишком большой файл! Максимальный размер [{MAX_FILE_SIZE}]!', MessageType.ERROR)
+                was_eof = False
+                while True:
+                    chunk = bin_file.read(1024)
+                    if not chunk:
+                        was_eof = True
+                        break  # Достигнут конец файла
+                    file_data += chunk
+
+                    # Проверяем размер считанных данных
+                    if len(file_data) > config.WIDGETS.MAX_FILE_SIZE:
+                        CustomMessageBox.show(self._master, 'Ошибка', f'Слишком большой файл! Максимальный размер: {config.WIDGETS.MAX_FILE_SIZE} байт.', CustomMessageType.ERROR)
                         break
-                else:
+                if was_eof:
+                    # Если размер файла не превышает максимально допустимый, отправляем данные
                     try:
-                        self._command({'data': {'raw_data': base64.b64encode(file_data).decode('utf-8'), 'filename': os.path.basename(f)}, 'type': MessageDataType.File})
+                        self._command(MessageData(
+                            type=MessageType.File,
+                            message=MessageFileData(
+                                raw_data=base64.b64encode(file_data).decode('utf-8'),
+                                filename=os.path.basename(file)
+                            )
+                        ))
                     except Exception as e:
-                        pass
+                        CustomMessageBox.show(self._master, 'Ошибка', f'Произошла ошибка [{e}]!', CustomMessageType.ERROR)
 
     def _change_color(self, *args):
+        """
+            Изменение цвета фона и текста виджетов в соответствии с темой.
+        """
         _style = ttk.Style()
         bg_color = _style.lookup('TFrame', 'background')
         fg_color = _style.lookup('TLabel', 'foreground')
-
         self._frame_input._text_input_message.config(bg=bg_color, fg=fg_color)
         self._text_dialog.config(bg=bg_color, fg=fg_color)
 
     def send_message(self) -> None:
+        """
+            Отправляет сообщение, указанное пользователем, и обновляет интерфейс диалога.
+        """
         # Получаем текст из Text widget
-        message = self._frame_input.get_text().strip()
+        message = self._frame_input.get_text()
         
-        if message:  # Проверяем, что текст не пустой
+        # Если сообщение не пустое, обрабатываем его
+        if message.strip():
+            # Фиксируем текущее время в московском часовом поясе
             current_time = datetime.now(self._moscow_tz)
-
+            # Форматируем сообщение для отображения в диалоге
             formatted_message = f"[{current_time.strftime('%d.%m.%Y - %H:%M:%S')}] {self._username}: {message}\n"
             self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
-
-            # Очищаем Text widget
+            # Очищаем поле ввода после отправки сообщения
             self._frame_input.del_text()
         
-            self._messages.append({
-                'author': self._username,
-                'msg': message,
-                'msg_id': f'm{self._message_id_counter}',
-                'time': current_time.isoformat()
-            })
+            # Добавляем сообщение в историю сообщений
+            self._messages.append(MessageTextData(
+                id=f'm{self._message_id_counter}',
+                time=current_time.isoformat(),
+                author=self._username,
+                message=message
+            ))
             self._message_id_counter += 1
 
             # Вызов пользовательской функции, если она задана
             if self._command:
-                self._command({'data': self._messages[-1], 'type': MessageDataType.Text})
+                self._command(MessageData(
+                    type=MessageType.Text,
+                    message=self._messages[-1]
+                ))
     
-    def exist_message(self, message: dict) -> bool:
+    def exist_message(self, message: MessageTextData) -> bool:
+        """
+            Проверяет, существует ли сообщение с указанным ID в истории диалога.
+
+        Args:
+            message: Объект класса MessageTextData.
+
+        Returns:
+            True, если сообщение существует, иначе False.
+        """
         for msg in self._messages:
-            if msg['msg_id'] == message['msg_id']:
+            if msg.id == message.id:
                 return True
         return False
 
-    def recieve_message(self, message: dict) -> None:
+    def recieve_message(self, message: MessageTextData) -> None:
+        """
+            Обрабатывает получение сообщения и обновляет интерфейс диалога.
+
+        Args:
+            message: Объект класса MessageTextData.
+        """
+
         if message:
-            recived_message_time = datetime.fromisoformat(message['time'])
+            recived_message_time = datetime.fromisoformat(message.time)
 
-            if 'm' in message['msg_id']:
-                c = int(message['msg_id'].replace('m', ''))
-                if self._message_id_counter < c:
-                    self._message_id_counter = c + 1
+            # Обновляем счетчик ID сообщений, если необходимо
+            if 'm' in message.id:
+                new_message_id_counter  = int(message.id.replace('m', ''))
+                if self._message_id_counter < new_message_id_counter :
+                    self._message_id_counter = new_message_id_counter  + 1
 
-            if len(self._messages):
-                last_my_message_time = datetime.fromisoformat(self._messages[-1]['time'])
+            # Если в истории уже есть сообщения, проверяем порядок времени получения
+            if self._messages and recived_message_time < datetime.fromisoformat(self._messages[-1].time):
+                # Перестраиваем историю сообщений, если полученное сообщение старше последнего
+                self._restruct_dialog_messages(message)
+                return
 
-                if recived_message_time < last_my_message_time:
-                    self._restruct_dialog_messages(message)
-                    return
-
-            formatted_message = f"[{recived_message_time.strftime('%d.%m.%Y - %H:%M:%S')}] {message['author']}: {message['msg']}\n"
+            # Просто добавляем сообщение в диалог
+            formatted_message = f"[{recived_message_time.strftime('%d.%m.%Y - %H:%M:%S')}] {message.author}: {message.message}\n"
             self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
 
             self._messages.append(message)
-            self._messages.sort(key=lambda x: x['time'])
+            # Сортируем сообщения по времени, на случай если порядок был нарушен
+            self._messages.sort(key=lambda x: x.time)
 
-    def load_history(self, history: list[dict]):
+    def load_history(self, history: list[MessageTextData]):
+        
         if history:
-            history = sorted(history, key=lambda x: x['time'])
+            history = sorted(history, key=lambda x: x.time)
             if self._messages:
-                self._messages.sort(key=lambda x: x['time'])
+                self._messages.sort(key=lambda x: x.time)
 
             counter = self._message_id_counter
             for message in history:
