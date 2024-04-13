@@ -1,33 +1,19 @@
-from enum import Enum
-from typing import Union, NamedTuple
-from dataclasses import dataclass
+from pydantic import BaseModel
+from typing import Literal, Union
 
-class MessageType(Enum):
-    Text = 'Text'
-    File = 'File'
+class MessageType(BaseModel):
+    type: Literal['Text', 'File']
 
-@dataclass
-class MessageTextData:
+class MessageTextData(BaseModel):
     id: str
     time: str
     author: str
     message: str
 
-class MessageFileData(NamedTuple):
+class MessageFileData(BaseModel):
     raw_data: str
     filename: str
 
-class MessageData(NamedTuple):
+class MessageData(BaseModel):
     type: MessageType
     message: Union[MessageTextData, MessageFileData]
-
-
-m = MessageData(
-    type=MessageType.Text.value,
-    message=MessageTextData(
-        id='m0',
-        time='10.01.2000',
-        author='oleg',
-        message='hello world!'
-    )
-)

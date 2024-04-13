@@ -1,5 +1,5 @@
 from platform import system
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 class _LoggerConfig(NamedTuple):
     DEBUG_MODE: bool
@@ -18,9 +18,18 @@ class _NetworkConfig(NamedTuple):
     CLIENT_COMMUNICATION_PORT: int
     PING: _NetworkPingConfig
 
+class _FontConfig(NamedTuple):
+    FAMILY: str
+    SIZE: int
+    WEIGHT: Literal["normal", "bold"]
+    SLANT: Literal["roman", "italic"]
+
 class _WidgetsConfig(NamedTuple):
     MAX_TEXT_SYMBOLS_NUMBER: int
     MAX_FILE_SIZE: int
+    DIALOG_TEXT_FONT: _FontConfig
+    DIALOG_AUTHOR_FONT: _FontConfig
+    INPUT_TEXT_FONT: _FontConfig
 
 class _PathConfig(NamedTuple):
     LOG_DHT: str
@@ -67,7 +76,29 @@ class _Config(NamedTuple):
         PING=_NetworkPingConfig(INTERVAL=5, TIMEOUT=10)
     )
 
-    WIDGETS: _WidgetsConfig = _WidgetsConfig(MAX_TEXT_SYMBOLS_NUMBER=5000, MAX_FILE_SIZE=5000)
+    WIDGETS: _WidgetsConfig = _WidgetsConfig(
+        MAX_TEXT_SYMBOLS_NUMBER = 5000,
+        MAX_FILE_SIZE           = 5000,
+        DIALOG_AUTHOR_FONT      = _FontConfig(
+            FAMILY  = 'Calibri',
+            SIZE    = 10,
+            WEIGHT  = 'bold',
+            SLANT   = 'roman'
+        ),
+        DIALOG_TEXT_FONT        = _FontConfig(
+            FAMILY  = 'Calibri',
+            SIZE    = 10,
+            WEIGHT  = 'normal',
+            SLANT   = 'roman'
+        ),
+        INPUT_TEXT_FONT         = _FontConfig(
+            FAMILY  = 'Calibri',
+            SIZE    = 10,
+            WEIGHT  = 'normal',
+            SLANT   = 'roman'
+        )
+    )
+
     THEME: _ThemeConfig = _ThemeConfig(
         DARK    = 'forest-dark',
         LIGHT   = 'forest-light',

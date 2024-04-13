@@ -1,3 +1,4 @@
+annotated-types==0.6.0
 certifi==2024.2.2
 charset-normalizer==3.3.2
 idna==3.6
@@ -5,10 +6,13 @@ kademlia==2.2.2
 nest-asyncio==1.6.0
 pillow==10.3.0
 pycryptodome==3.20.0
+pydantic==2.7.0
+pydantic_core==2.18.1
 pyperclip==1.8.2
 pytz==2024.1
 requests==2.31.0
 rpcudp==5.0.0
 tkinterdnd2-universal==1.7.3
+typing_extensions==4.11.0
 u-msgpack-python==2.8.0
 urllib3==2.2.1

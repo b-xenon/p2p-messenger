@@ -30,11 +30,6 @@ class Message:
     MESSAGE_SYNC_DATA = "6"
 
 
-class MessageDataType:
-    Text = 'Text'
-    File = 'File'
-
-
 class Event(threading.Event):
     EVENT_CONNECT = 0
     EVENT_DISCONNECT = 1

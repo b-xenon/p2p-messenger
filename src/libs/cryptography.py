@@ -28,11 +28,11 @@ class Encrypter:
             keys_path: Путь к директории с ключами.
         """
         self._keys_path: str = keys_path
-        self._private_key: ECC.EccKey = None
-        self._public_key: ECC.EccKey = None
-        self._secret_key: bytes = None
-        self._database_key: bytes = None
-        self._rsa_private_key: str = None
+        self._private_key: ECC.EccKey
+        self._public_key: ECC.EccKey
+        self._secret_key: bytes = b''
+        self._database_key: bytes = b''
+        self._rsa_private_key: str = ''
 
         os.makedirs(self._keys_path, exist_ok=True)
         self._load_database_encode_key()
@@ -62,13 +62,13 @@ class Encrypter:
         Args:
             peer_pub_key: Публичный ключ другой стороны в формате PEM.
         """
-        peer_pub_key = ECC.import_key(peer_pub_key)
+        _peer_pub_key: ECC.EccKey = ECC.import_key(peer_pub_key)
         # Вычисляем общий секрет, умножая публичный ключ другой стороны на наш приватный ключ
-        shared_secret_point  = self._private_key.d * peer_pub_key.pointQ
+        shared_secret_point  = self._private_key.d * _peer_pub_key.pointQ # type: ignore
         # Преобразование координаты X общего секрета в байты
         shared_secret_bytes = shared_secret_point.x.to_bytes(32, 'big')  # Для P-256 размер 32 байта
         # Использование HKDF для получения ключа фиксированного размера из общего секрета
-        self._secret_key = HKDF(shared_secret_bytes, 16, b"", SHA256)
+        self._secret_key = HKDF(shared_secret_bytes, 16, b"", SHA256) # type: ignore
 
     def encrypt(self, message: str) -> EncryptedData:
         """

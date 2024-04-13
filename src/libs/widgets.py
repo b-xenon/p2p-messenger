@@ -1,14 +1,15 @@
-import os
 import tkinter as tk
 from tkinter import ttk
 from tkinterdnd2 import DND_FILES
 
+import os
 import random
 import string
 
 import base64
 import pyperclip
 from PIL import Image, ImageTk
+from enum import Enum
 
 from typing import Any
 
@@ -18,7 +19,7 @@ from datetime import datetime
 from config import config
 from message import *
 
-class CustomMessageType:
+class CustomMessageType(Enum):
     ANY = 'ANY'
     INFO = 'INFO'
     WARNING = 'WARNING'
@@ -74,8 +75,8 @@ class _MessageBox(tk.Toplevel):
         frame.pack(expand=True, fill=tk.BOTH)
 
         image = ImageTk.PhotoImage(Image.open(self._image_path))
-        label_image = ttk.Label(frame, image=image)
-        label_image.image = image  # keep a reference!
+        label_image = ttk.Label(frame, image=image) # type: ignore
+        label_image.image = image  # keep a reference! # type: ignore
         label_image.pack(side=tk.LEFT, padx=10, pady=10)
 
         label_text = ttk.Label(frame, text=self._message, wraplength=250)
@@ -116,7 +117,7 @@ class LimitedText(ttk.Frame):
         self._master = master
         self._max_size = max_size
 
-        self._text_input_message = tk.Text(self, height=4, font=('Calibri', 10))
+        self._text_input_message = tk.Text(self, height=4, font=config.WIDGETS.INPUT_TEXT_FONT) # type: ignore
         self._progressbar = ttk.Progressbar(self, mode='determinate', maximum=max_size, value=0)
 
         self._text_input_message.pack(fill='x', padx=5, pady=5)
@@ -136,15 +137,17 @@ class LimitedText(ttk.Frame):
         # Получаем текущее содержимое виджета
         current_text = self._text_input_message.get('1.0', 'end-1c')
 
-        # Разрешаем нажатие Backspace, Delete, стрелок, и пропускаем управляющие символы и события без символов (например, Shift)
-        if event.keysym in ('BackSpace', 'Delete', 'Left', 'Right', 'Up', 'Down') or event.char in ('\x08', '\x7f') or not event.char:
+        # Разрешаем нажатие Backspace, Delete, стрелок, и пропускаем управляющие символы 
+        # и события без символов (например, Shift)
+        if (event.keysym in ('BackSpace', 'Delete', 'Left', 'Right', 'Up', 'Down') 
+            or event.char in ('\x08', '\x7f') or not event.char):
             return
 
         # Проверяем длину текста с учетом возможного нового символа
         if len(current_text) >= self._max_size:
-            return 'break'
+            return 'break' # type: ignore
 
-    def _handle_paste(self, event) -> str:
+    def _handle_paste(self, event=None) -> str:
         """
             Обработка вставки текста из буфера обмена.
 
@@ -212,7 +215,8 @@ class LimitedText(ttk.Frame):
 class Dialog(ttk.Frame):
     objects_counter = 0 # Счетчик объектов класса для присвоения уникальных ID
 
-    def __init__(self, master: Any, interlocutor_id: str, username: str = None, dialog_name: str = None, command: Any = None, **kwargs) -> None:
+    def __init__(self, master: Any, interlocutor_id: str, username: str = '',
+                  dialog_name: str = '', command: Any = None, **kwargs) -> None:
         """
             Инициализация диалогового окна.
 
@@ -228,12 +232,12 @@ class Dialog(ttk.Frame):
 
         self._master = master
         self._interlocutor_id = interlocutor_id
-        self._username = username if username is not None else self._generate_random_name()
+        self._username = username if username else self._generate_random_name()
         self._command = command
 
         self._moscow_tz = pytz.timezone('Europe/Moscow')
         
-        self._dialog_name = dialog_name if dialog_name is not None else self._generate_random_name()
+        self._dialog_name = dialog_name if dialog_name else self._generate_random_name()
         self._id = Dialog.objects_counter
         Dialog.objects_counter += 1
 
@@ -248,7 +252,7 @@ class Dialog(ttk.Frame):
             Настройка виджетов диалогового окна.
         """
         self._frame_dialog = ttk.Frame(self)
-        self._text_dialog = tk.Text(self._frame_dialog, state='disabled', height=20, font=('Calibri', 10))
+        self._text_dialog = tk.Text(self._frame_dialog, state='disabled', height=20, font=config.WIDGETS.DIALOG_TEXT_FONT) # type: ignore
         self._scrollbar = tk.Scrollbar(self._frame_dialog, command=self._text_dialog.yview)
         self._frame_input = LimitedText(self, config.WIDGETS.MAX_TEXT_SYMBOLS_NUMBER)
         self._button_send_input_message = ttk.Button(self, text="Отправить", command=self.send_message)
@@ -260,7 +264,7 @@ class Dialog(ttk.Frame):
         self._button_send_input_message.pack(fill='both', expand=True, padx=5)
 
         self._text_dialog.config(yscrollcommand=self._scrollbar.set)
-        self._text_dialog.tag_configure("bold", font=('Calibri', 10, 'bold'))
+        self._text_dialog.tag_configure("bold", font=config.WIDGETS.DIALOG_AUTHOR_FONT) # type: ignore
 
     def _bind_events(self):
         """
@@ -268,8 +272,8 @@ class Dialog(ttk.Frame):
         """
         self._master.bind("<<ThemeChanged>>", self._change_color)
         # Привязка события перетаскивания файла в текстовое поле
-        self._text_dialog.drop_target_register(DND_FILES)
-        self._text_dialog.dnd_bind('<<Drop>>', self._drag_n_drop_event_handler)
+        self._text_dialog.drop_target_register(DND_FILES) # type: ignore
+        self._text_dialog.dnd_bind('<<Drop>>', self._drag_n_drop_event_handler) # type: ignore
 
     def _drag_n_drop_event_handler(self, event):
         """
@@ -313,10 +317,10 @@ class Dialog(ttk.Frame):
                     # Если размер файла не превышает максимально допустимый, отправляем данные
                     try:
                         self._command(MessageData(
-                            type=MessageType.File,
-                            message=MessageFileData(
-                                raw_data=base64.b64encode(file_data).decode('utf-8'),
-                                filename=os.path.basename(file)
+                            type    = MessageType(type='File'),
+                            message = MessageFileData(
+                                raw_data = base64.b64encode(file_data).decode('utf-8'),
+                                filename = os.path.basename(file)
                             )
                         ))
                     except Exception as e:
@@ -343,26 +347,28 @@ class Dialog(ttk.Frame):
         if message.strip():
             # Фиксируем текущее время в московском часовом поясе
             current_time = datetime.now(self._moscow_tz)
-            # Форматируем сообщение для отображения в диалоге
-            formatted_message = f"[{current_time.strftime('%d.%m.%Y - %H:%M:%S')}] {self._username}: {message}\n"
-            self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
-            # Очищаем поле ввода после отправки сообщения
-            self._frame_input.del_text()
-        
+            
             # Добавляем сообщение в историю сообщений
             self._messages.append(MessageTextData(
-                id=f'm{self._message_id_counter}',
-                time=current_time.isoformat(),
-                author=self._username,
-                message=message
+                id      = f'm{self._message_id_counter}',
+                time    = current_time.isoformat(),
+                author  = self._username,
+                message = message
             ))
             self._message_id_counter += 1
+
+            # Форматируем сообщение для отображения в диалоге
+            formatted_message = self._format_message(self._messages[-1], current_time)
+            self._add_message_to_dialog(formatted_message, formatted_message.index(': ') + 1)
+            
+            # Очищаем поле ввода после отправки сообщения
+            self._frame_input.del_text()
 
             # Вызов пользовательской функции, если она задана
             if self._command:
                 self._command(MessageData(
-                    type=MessageType.Text,
-                    message=self._messages[-1]
+                    type    = MessageType(type='Text'),
+                    message = self._messages[-1]
                 ))
     
     def exist_message(self, message: MessageTextData) -> bool:
@@ -392,10 +398,7 @@ class Dialog(ttk.Frame):
             recived_message_time = datetime.fromisoformat(message.time)
 
             # Обновляем счетчик ID сообщений, если необходимо
-            if 'm' in message.id:
-                new_message_id_counter  = int(message.id.replace('m', ''))
-                if self._message_id_counter < new_message_id_counter :
-                    self._message_id_counter = new_message_id_counter  + 1
+            self._update_counter(message.id)
 
             # Если в истории уже есть сообщения, проверяем порядок времени получения
             if self._messages and recived_message_time < datetime.fromisoformat(self._messages[-1].time):
@@ -404,62 +407,114 @@ class Dialog(ttk.Frame):
                 return
 
             # Просто добавляем сообщение в диалог
-            formatted_message = f"[{recived_message_time.strftime('%d.%m.%Y - %H:%M:%S')}] {message.author}: {message.message}\n"
-            self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
+            formatted_message = self._format_message(message, recived_message_time)
+            self._add_message_to_dialog(formatted_message, formatted_message.index(': ') + 1)
 
             self._messages.append(message)
             # Сортируем сообщения по времени, на случай если порядок был нарушен
             self._messages.sort(key=lambda x: x.time)
 
-    def load_history(self, history: list[MessageTextData]):
+    def load_history(self, history: list[MessageTextData]) -> None:
+        """
+            Загружает историю сообщений в диалог.
+
+        Args:
+            history: Список объектов MessageTextData.
+        """
+        if not history:
+            return
         
-        if history:
-            history = sorted(history, key=lambda x: x.time)
-            if self._messages:
-                self._messages.sort(key=lambda x: x.time)
+        # Сортировка истории по времени
+        history = sorted(history, key=lambda x: datetime.fromisoformat(x.time))
 
-            counter = self._message_id_counter
-            for message in history:
-                message_time = datetime.fromisoformat(message['time'])
+        messages_size_before = len(self._messages)
+        # Интеграция каждого сообщения из истории
+        for message in history:
+            if self.exist_message(message):
+                continue
 
-                if 'm' in message['msg_id']:
-                    c = int(message['msg_id'].replace('m', ''))
-                    if counter < c:
-                        counter = c
-
-                formatted_message = f"[{message_time.strftime('%d.%m.%Y - %H:%M:%S')}] {message['author']}: {message['msg']}\n"
-                self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1)
-
-                self._messages.append(message)
+            self._update_counter(message.id)
             
-            if self._message_id_counter != counter:
+            message_time = datetime.fromisoformat(message.time)
+            formatted_message = self._format_message(message, message_time)
+            self._add_message_to_dialog(formatted_message, formatted_message.index(': ') + 1)
+            self._messages.append(message)
+
+        if messages_size_before != len(self._messages):
+            self._messages.sort(key=lambda x: datetime.fromisoformat(x.time))
+
+    def _update_counter(self, msg_id: str) -> None:
+        """
+        Обновляет счётчик сообщений на основе идентификатора сообщения.
+
+        Args:
+            msg_id: Идентификатор сообщения.
+        """
+        if 'm' in msg_id:
+            counter = int(msg_id.replace('m', ''))
+            if self._message_id_counter <= counter:
                 self._message_id_counter = counter + 1
 
-    def _restruct_dialog_messages(self, recv_message: dict) -> None:
+    def _format_message(self, message: MessageTextData, message_time: datetime) -> str:
+        """
+        Форматирует сообщение для вывода.
+
+        Args:
+            message: Объект MessageTextData.
+            message_time: Время сообщения.
+
+        Returns:
+            Отформатированное сообщение.
+        """
+        return f"[{message_time.strftime('%d.%m.%Y - %H:%M:%S')}] {message.author}: {message.message}\n"
+
+
+    def _restruct_dialog_messages(self, recv_message: MessageTextData) -> None:
+        """
+            Вставляет полученное сообщение в хронологически правильное место в диалоге.
+
+        Args:
+            recv_message: Полученное сообщение типа MessageTextData.
+        """
+        # Инициализация переменных для отслеживания позиции вставки
         counter = 0
         pos_in_text = 1
         was_inserted = False
-        recived_message_time = datetime.fromisoformat(recv_message['time'])
-        for message in self._messages:
-            message_time = datetime.fromisoformat(message['time'])
 
-            if recived_message_time < message_time:
-                if not was_inserted:
-                    was_inserted = True
-                    formatted_message = f"[{recived_message_time.strftime('%d.%m.%Y - %H:%M:%S')}] {recv_message['author']}: {recv_message['msg']}\n"
-                    self._add_message_to_dialog(formatted_message, len(formatted_message.split(': ')[0]) + 1, pos_in_text)
-                    break
+        # Преобразование строки времени в объект datetime
+        received_message_time = datetime.fromisoformat(recv_message.time)
+
+        # Перебор существующих сообщений для поиска подходящего места вставки
+        for message in self._messages:
+            message_time = datetime.fromisoformat(message.time)
+
+            # Вставка, если время полученного сообщения меньше времени текущего сообщения в списке
+            if received_message_time < message_time and not was_inserted:
+                formatted_message = self._format_message(recv_message, received_message_time)
+                self._add_message_to_dialog(formatted_message, formatted_message.index(': ') + 1, pos_in_text)
+                was_inserted = True
+                break   
 
             if not was_inserted:
                 counter += 1
-                pos_in_text += message['msg'].count('\n') + 1
+                pos_in_text += message.message.count('\n') + 1
         
+        # Вставка сообщения в список сообщений
         self._messages.insert(counter, recv_message)
 
 
-    def _add_message_to_dialog(self, formatted_message: str, date_and_author_len: int, pos: int = None) -> None:
+    def _add_message_to_dialog(self, formatted_message: str, date_and_author_len: int, pos: int = -1) -> None:
+        """
+            Добавляет форматированное сообщение в виджет текстового диалога.
+
+        Args:
+            formatted_message: Отформатированное сообщение.
+            date_and_author_len: Длина строки с датой и автором.
+            pos: Позиция вставки в виджете.
+        """
+        
         # Получаем номер следующей строки
-        next_line_number = int(self._text_dialog.index("end-1c").split(".")[0]) if pos is None else pos
+        next_line_number = int(self._text_dialog.index("end-1c").split(".")[0]) if pos == -1 else pos
 
         # Добавляем сообщение в конец
         self._text_dialog.config(state='normal')
@@ -471,29 +526,68 @@ class Dialog(ttk.Frame):
         self._text_dialog.see(tk.END)
 
     def _generate_random_name(self) -> str:
+        """
+            Генерирует случайное имя пользователя.
+
+        Returns:
+            Строка, содержащая случайное имя пользователя.
+        """
         # Строка со всеми буквами и цифрами
         characters = string.ascii_letters + string.digits
         # Выбор случайных символов из строки characters
-        random_string = ''.join(random.choice(characters) for i in range(12))
-        return random_string
+        return ''.join(random.choice(characters) for _ in range(12))
     
     def get_id(self) -> int:
+        """
+            Получает уникальный идентификатор диалога.
+
+        Returns:
+            Идентификатор диалога.
+        """
         return self._id
     
     def get_interlocutor_id(self) -> str:
+        """
+            Получает идентификатор собеседника.
+
+        Returns:
+            Идентификатор собеседника.
+        """
         return self._interlocutor_id
 
     def activate(self) -> None:
+        """
+            Активирует элементы управления диалогом.
+        """
         self._frame_input.activate()
         self._button_send_input_message.config(state='normal')
 
     def inactivate(self) -> None:
+        """
+            Деактивирует элементы управления диалогом.
+        """
         self._frame_input.inactivate()
         self._button_send_input_message.config(state='disabled')
-    
 
-class Chats(ttk.Frame):
-    def __init__(self, master=None, username=None, command=None, **kwargs) -> None:
+
+class UnavaliableDialogId(Exception):
+    """Введен некорректный id диалога"""
+
+class EmptyActiveDialog(Exception):
+    """Попытка получения пустого активного диалога"""
+
+
+class DialogManager(ttk.Frame):
+    def __init__(self, master: Any, username: str = '', command: Any = None, **kwargs) -> None:
+        """
+            Инициализирует менеджер диалогов, наследующийся от ttk.Frame.
+
+        Args:
+            master: Родительский виджет.
+            username: Имя пользователя.
+            command: Команда, выполняемая при определенных действиях.
+            kwargs: Дополнительные параметры для ttk.Frame.
+        """
         super().__init__(master, **kwargs)
 
         self._master = master
@@ -502,52 +596,113 @@ class Chats(ttk.Frame):
         self._dialogs = {}
 
         # Создание виджета Notebook
-        self._notebook_chats = ttk.Notebook(self)
-        self._notebook_chats.pack(expand=True, fill='both', padx=10, pady=10)
+        self._notebook_dialogs = ttk.Notebook(self)
+        self._notebook_dialogs.pack(expand=True, fill='both', padx=10, pady=10)
     
     def set_username(self, username: str) -> None:
+        """
+            Устанавливает или обновляет имя пользователя.
+
+        Args:
+            username: Новое имя пользователя.
+        """
         self._username = username
 
-    def add_dialog(self, dialog_name: str, interlocutor_id: str, dialog_history: list[dict]) -> int:
+    def add_dialog(self, dialog_name: str, interlocutor_id: str, dialog_history: list[MessageTextData]) -> int:
+        """
+            Добавляет новую вкладку диалога в Notebook.
+
+        Args:
+            dialog_name: Название диалога.
+            interlocutor_id: Идентификатор собеседника.
+            dialog_history: История сообщений диалога.
+
+        Returns:
+            Идентификатор созданного диалога.
+        """
         # Создание новой вкладки с CustomWidget
-        dlg = Dialog(self._notebook_chats, interlocutor_id, username=self._username, dialog_name=dialog_name, command=self._command)
-        self._dialogs[dlg.get_id()] = dlg
+        dialog = Dialog(
+            master          = self._notebook_dialogs,
+            interlocutor_id = interlocutor_id,
+            username        = self._username,
+            dialog_name     = dialog_name,
+            command         = self._command
+        )
 
-        dlg.load_history(dialog_history)
+        self._dialogs[dialog.get_id()] = dialog
+        dialog.load_history(dialog_history)
 
-        dlg.pack(expand=True, fill='both')
+        dialog.pack(expand=True, fill='both')
+        self._notebook_dialogs.add(dialog, text=f"{dialog_name}")
+        self._notebook_dialogs.select(self._notebook_dialogs.index('end') - 1)
 
-        self._notebook_chats.add(dlg, text=f"{dialog_name}")
-        self._notebook_chats.select(self._notebook_chats.index('end') - 1)
-
-        return dlg.get_id()
+        return dialog.get_id()
 
     def inactivate_dialog(self, dialog_id: int) -> None:
-        if dialog_id not in self._dialogs:
-            return
-        self._dialogs[dialog_id].inactivate()
+        """
+            Деактивирует указанный диалог.
+
+        Args:
+            dialog_id: Идентификатор диалога.
+        """
+        if dialog_id in self._dialogs:
+            self._dialogs[dialog_id].inactivate()
 
     def hide_dialog(self, dialog_id: int) -> None:
-        if dialog_id not in self._dialogs:
-            return
-        self._dialogs[dialog_id].pack_forget()
+        """
+            Скрывает указанный диалог из интерфейса.
+
+        Args:
+            dialog_id: Идентификатор диалога.
+        """
+        if dialog_id in self._dialogs:
+            self._dialogs[dialog_id].pack_forget()
         
     def load_dialog(self, dialog_id: int) -> None:
-        if dialog_id not in self._dialogs:
-            return
-        if not self._dialogs[dialog_id].winfo_viewable():
-            self._dialogs[dialog_id].pack(expand=True, fill='both')
-        
-        self._dialogs[dialog_id].activate()
+        """
+            Загружает и активирует указанный диалог.
+
+        Args:
+            dialog_id: Идентификатор диалога.
+        """
+        if dialog_id in self._dialogs:
+            if not self._dialogs[dialog_id].winfo_viewable():
+                self._dialogs[dialog_id].pack(expand=True, fill='both')
+            self._dialogs[dialog_id].activate()
 
     def size(self) -> int:
+        """
+            Возвращает количество диалогов.
+
+        Returns:
+            Количество диалогов.
+        """
         return len(self._dialogs)
     
     def get_dialog(self, dialog_id: int) -> Dialog:
+        """
+            Возвращает объект диалога по его идентификатору.
+
+        Args:
+            dialog_id: Идентификатор диалога.
+
+        Returns:
+            Объект диалога или None, если такого диалога нет.
+        """
         if dialog_id not in self._dialogs:
-            return None
+            raise UnavaliableDialogId
         return self._dialogs[dialog_id]
     
     def get_current_dialog(self) -> Dialog:
-        current_tab = self._notebook_chats.select()
-        return self.nametowidget(current_tab)
+        """
+            Возвращает текущий активный диалог.
+
+        Returns:
+            Активный диалог.
+        """
+        try:
+            current_tab = self._notebook_dialogs.select()
+            widget = self.nametowidget(current_tab)
+            return widget
+        except Exception:
+            raise EmptyActiveDialog

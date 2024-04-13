@@ -10,7 +10,7 @@ import re
 import json
 import config
 from libs.mylogger import MyLogger, MyLoggerType
-from libs.widgets import Chats, CustomMessageBox, CustomMessageType
+from libs.widgets import DialogManager, CustomMessageBox, CustomMessageType
 from libs.network import Client, Event, MessageDataType
 
 class WinApp(TkinterDnD.Tk):
@@ -136,7 +136,7 @@ class WinApp(TkinterDnD.Tk):
                                                              width=30, command=self._connect_to_another_client)
         self._button_connect_to_another_client.pack(padx=10, pady=10)
 
-        self._chats = Chats(self._frame_main, self._ip_address, lambda x: self._send_message_to_another_client(x))
+        self._chats = DialogManager(self._frame_main, self._ip_address, lambda x: self._send_message_to_another_client(x))
         self._chats.pack(expand=True, fill='both', padx=10, pady=10)
 
     def _default_init(self) -> None:

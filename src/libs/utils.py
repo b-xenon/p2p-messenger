@@ -23,7 +23,7 @@ def to_dict(obj: Any) -> Union[Dict[str, Any], List[Any], Any]:
     # Проверяем, является ли объект NamedTuple.
     elif isinstance(obj, tuple) and hasattr(obj, '_fields'):
         # Преобразовываем NamedTuple в словарь, используя _fields для ключей.
-        return {k: to_dict(v) for k, v in zip(obj._fields, obj)}
+        return {k: to_dict(v) for k, v in zip(getattr(obj, '_fields'), obj)}
     # Проверяем, является ли объект Mapping (например, словарём).
     elif isinstance(obj, Mapping):
         # Преобразовываем Mapping в словарь, рекурсивно вызывая to_dict для каждого значения.
@@ -65,7 +65,7 @@ def from_dict(obj_type: Type[Any], obj_dict: Dict[str, Any]) -> Any:
     # Обработка NamedTuple
     elif isinstance(obj_type, type) and issubclass(obj_type, tuple) and hasattr(obj_type, '_fields'):
         field_types = get_type_hints(obj_type)
-        return obj_type(**{f: from_dict(field_types[f], obj_dict.get(f, None)) for f in obj_type._fields})
+        return obj_type(**{f: from_dict(field_types[f], obj_dict.get(f, None)) for f in getattr(obj_type, '_fields')})
     
     # Возвращаем словарь, если тип не является ни датаклассом, ни NamedTuple
     else:
