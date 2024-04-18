@@ -808,7 +808,7 @@ class UserSession:
             if not self._crypto.verify_signature(self._peer_rsa_public_key, additional_info_b64, data.signature_additional):
                 self._logger.warning(f"Пришло поддельное сообщение от имени клиента [{self._remote_address}]"
                                     f"[{data.additional.user_id} | {data.additional.user_name}]!")
-            return False
+                return False
         return True
 
     def _sync_dialog_history(self, peer_dialog_message_ids: List[MessageIdType]) -> None:

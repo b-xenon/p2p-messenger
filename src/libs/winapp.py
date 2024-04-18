@@ -50,6 +50,7 @@ class WinApp(TkinterDnD.Tk):
 
         self._create_window()
 
+        threading.Thread(target=self._client_helper.handle_dialog, args=(self, self._dialog_manager), daemon=True).start()
         self.protocol("WM_DELETE_WINDOW", self._prepare_to_close_program)
 
     def _default_init(self) -> None:
@@ -269,6 +270,9 @@ class WinApp(TkinterDnD.Tk):
             CustomMessageBox.show(self, 'Инфо', f'Общение с [{self._entry_alien_dht_key_var.get()}] завершено!', CustomMessageType.SUCCESS)
             return
 
+        threading.Thread(target=self.__connect_to_another_client, daemon=True).start()
+
+    def __connect_to_another_client(self) -> None:
         try:
             another_client_info: DHTPeerProfile = self._client_helper.get_data_from_dht(self._entry_alien_dht_key_var.get())
         except (OSError, TypeError, ValidationError, EmptyDHTDataError) as e:
@@ -282,7 +286,7 @@ class WinApp(TkinterDnD.Tk):
             return
         
         # установаем соединение
-        threading.Thread(target=self._client_helper.connect, args=(another_client_info, ), daemon=True).start()
+        self._client_helper.connect(another_client_info)
 
     def _create_child_window_for_entering_user_info(self):
         """
