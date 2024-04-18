@@ -171,8 +171,8 @@ class Encrypter:
         Returns:
             Расшифрованное сообщение.
         """
-        iv = self.decode_from_b64(data.data_b64)
-        ct_bytes = self.decode_from_b64(data.iv_b64)
+        iv = self.decode_from_b64(data.iv_b64)
+        ct_bytes = self.decode_from_b64(data.data_b64)
         cipher = AES.new(self._secret_key, AES.MODE_CBC, iv)
         pt = unpad(cipher.decrypt(ct_bytes), AES.block_size)
         return pt.decode()

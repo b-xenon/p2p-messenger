@@ -166,23 +166,29 @@ class UserSession:
 
             # Кодирование начального сообщения в Base64 и его подпись
             initial_message_b64: B64_FormatData = self._crypto.encode_to_b64(self._crypto.get_rsa_public_key())
+            encrypted_data: EncryptedData = EncryptedData(
+                data_b64=initial_message_b64,
+                iv_b64=''
+            )
+            encrypted_data_b64: B64_FormatData = self._crypto.encode_to_b64(encrypted_data.model_dump_json())
+            message_signature_b64: B64_FormatData = self._crypto.sign_message(encrypted_data_b64)
 
             additional_info: AdditionalData = AdditionalData(
                 user_id=self._user_id,
                 user_name=self._user_name,
                 ecdh_public_key=self._crypto.get_public_key()  # Получение публичного ключа для обмена
             )
+            additional_info_b64: B64_FormatData = self._crypto.encode_to_b64(additional_info.model_dump_json())
+            additional_info_signature_b64: B64_FormatData = self._crypto.sign_message(additional_info_b64)
+
 
             # Сборка данных для отправки
             data_to_send = NetworkData(
                 command_type=NetworkCommands.INIT,
-                encrypted_data=EncryptedData(
-                    data_b64=initial_message_b64,
-                    iv_b64=''
-                ),
-                signature='',
+                encrypted_data=encrypted_data,
+                signature=message_signature_b64,
                 additional=additional_info,
-                signature_additional=''
+                signature_additional=additional_info_signature_b64
             )
             self._send_network_data(data_to_send)
 
@@ -306,9 +312,9 @@ class UserSession:
 
                 if not self._peer_rsa_public_key:
                     self._peer_rsa_public_key = self._crypto.decode_from_b64(received_data.encrypted_data.data_b64).decode('utf-8')
-                else:
-                    if not self._verify_data(received_data):
-                        continue
+                
+                if not self._verify_data(received_data):
+                    continue
 
                 self._logger.debug(f"Проверка подписи для клиента [{self._remote_address}]"
                                    f"[{self._peer_user_id} | {self._peer_user_name}] прошла успешно.")
@@ -616,17 +622,14 @@ class UserSession:
         """
         message.id = self._change_perception_for_message_id(message.id)
 
-        # Если это ресенд, то проверяем, получали ли мы его уже
-        already_exist = False
+        # Если это ресенд, то проверяем, есть ли он в темп буфере
         if resend_flag:
-            if message.id in self._dialog_history_ids:
-                already_exist = True
-        
-        # Если не получали, то выводим в диалог и сохраняем в базу данных
-        if not already_exist:
-            self._send_event_data_received(message, resend_flag)
-            self._database.save_data([message])
-            self._dialog_history_ids.append(message.id)
+            if message.id in self._outbound_message_buffer:
+                del self._outbound_message_buffer[message.id]
+
+        self._send_event_data_received(message, resend_flag)
+        self._database.save_data([message])
+        self._dialog_history_ids.append(message.id)
 
         # Отправляем ответ
         self._send_recv(MessageData(type=MessageType.Text, message=message.id), resend_flag)
@@ -710,10 +713,9 @@ class UserSession:
         
         match decrypted_data.type:
             case MessageType.Text:
-                if not received_data.additional.resend_flag:
-                    self._send_event_data_confirmation(self._outbound_message_buffer[decrypted_data.message], received_data.additional.resend_flag) # type: ignore
-                    self._save_message_in_db([self._outbound_message_buffer[decrypted_data.message]]) # type: ignore
-                    self._dialog_history_ids.append(decrypted_data.message) # type: ignore
+                self._send_event_data_confirmation(self._outbound_message_buffer[decrypted_data.message], received_data.additional.resend_flag) # type: ignore
+                self._save_message_in_db([self._outbound_message_buffer[decrypted_data.message]]) # type: ignore
+                self._dialog_history_ids.append(decrypted_data.message) # type: ignore
                 del self._outbound_message_buffer[decrypted_data.message] # type: ignore
             case MessageType.File:
                 self._send_event_file_confirmation(decrypted_data.message) # type: ignore
@@ -854,7 +856,7 @@ class UserSession:
             peer_message_ids (List[MessageIdType]): Список идентификаторов сообщений от пира.
         """
         if peer_message_ids:
-            our_message_ids = [msg.id for msg in self._dialog_history]
+            our_message_ids = [msg_id for msg_id in self._dialog_history_ids]
             missing_peer_messages = [mid for mid in peer_message_ids if mid not in our_message_ids]
 
             if missing_peer_messages:
@@ -879,7 +881,8 @@ class UserSession:
                 # Пулим в ивент для обновления истории сообщений
                 self._send_event(NetworkEventType.SEND_DATA, data=msg, resend_flag=True, dont_set_flag=True)
                 existed_msg.append(msg)
-                del self._outbound_message_buffer[msg.id]
+                self._dialog_history_ids.append(msg_id)
+                del self._outbound_message_buffer[msg_id]
 
         if existed_msg:                
             self._event.set()
@@ -915,7 +918,12 @@ class UserSession:
 
         # Кодирование начального сообщения в Base64 и его подпись
         exist_message_b64: B64_FormatData = self._crypto.encrypt_with_rsa('Session already exists!', self._peer_rsa_public_key)
-        message_signature_b64: B64_FormatData = self._crypto.sign_message(exist_message_b64)
+        encrypted_data: EncryptedData = EncryptedData(
+                data_b64=exist_message_b64,
+                iv_b64=''
+        )
+        encrypted_data_b64: B64_FormatData = self._crypto.encode_to_b64(encrypted_data.model_dump_json())
+        message_signature_b64: B64_FormatData = self._crypto.sign_message(encrypted_data_b64)
 
         additional_info: AdditionalData = AdditionalData(
             user_id=self._user_id,
@@ -927,10 +935,7 @@ class UserSession:
         # Сборка данных для отправки
         data_to_send = NetworkData(
             command_type=NetworkCommands.EXISTS,
-            encrypted_data=EncryptedData(
-                data_b64=exist_message_b64,
-                iv_b64=''
-            ),
+            encrypted_data=encrypted_data,
             signature=message_signature_b64,
             additional=additional_info,
             signature_additional=additional_info_signature_b64
