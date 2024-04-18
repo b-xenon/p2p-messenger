@@ -949,6 +949,8 @@ class ClientManager:
         self._user_name: str = ''
         self._use_local_ip: bool = False
 
+        self.is_dht_active = False
+
         # Список активных сессий
         self._sessions: Dict[int, UserSession] = {}
 
@@ -1028,6 +1030,7 @@ class ClientManager:
             dht_ip=config.NETWORK.DHT.IP,
             dht_port=config.NETWORK.DHT.PORT
         )
+        self.is_dht_active = True
 
     def connect(self, peer_info: DHTPeerProfile) -> int:
         """
@@ -1300,5 +1303,6 @@ class ClientHelper:
         """
             Закрывает клиента и dht.
         """
-        self._client.dht.stop()
+        if self._client.is_dht_active:
+            self._client.dht.stop()
         self._client.close()

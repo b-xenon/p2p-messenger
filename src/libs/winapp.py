@@ -210,7 +210,7 @@ class WinApp(TkinterDnD.Tk):
             peer_user_id: str = self._dialog_manager.get_current_dialog().get_interlocutor_id()
             self._client_helper.send_message_to_another_client(message, peer_user_id)
 
-        self._dialog_manager = DialogManager(self._frame_main, command=lambda msg: _send_message_to_another_client)
+        self._dialog_manager = DialogManager(self._frame_main, command=lambda msg: _send_message_to_another_client(msg))
         self._dialog_manager.pack(expand=True, fill='both', padx=10, pady=10)
 
     def _set_my_dht_key(self) -> None:
