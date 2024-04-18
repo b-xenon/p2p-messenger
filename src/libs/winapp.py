@@ -347,7 +347,11 @@ class WinApp(TkinterDnD.Tk):
                 self._logger.error('Введенное имя содержит недопустимые символы!')
                 return
 
-            self._client_helper.set_client_info(self._user_id_var.get(), self._user_name_var.get(), self._use_local_ip_var.get())
+            threading.Thread(
+                target=self._client_helper.set_client_info,
+                args=(self._user_id_var.get(), self._user_name_var.get(), self._use_local_ip_var.get()),
+                daemon=True
+            ).start()
             
             self._user_information_has_been_entered.set(True)
             window.destroy()
@@ -430,8 +434,7 @@ class WinApp(TkinterDnD.Tk):
         def __close_program():
             self._logger.debug("Завершаю программу...")
             CustomMessageBox.show(self, 'Инфо', f"Подождите, идет завершение программы...", CustomMessageType.INFO)
-            # self._our_client.dht.stop()
-            # self._our_client.close()
+            self._client_helper.close()
             self._create_config()
             self.destroy()
 

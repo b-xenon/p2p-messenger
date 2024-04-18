@@ -1,4 +1,7 @@
 import asyncio
+import nest_asyncio
+
+nest_asyncio.apply()
 from kademlia.network import Server
 from pydantic import BaseModel
 
@@ -40,8 +43,7 @@ class DHT_Client:
         self._dht_ip = dht_ip
         self._dht_port = dht_port
 
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
+        self._loop = asyncio.get_event_loop()
         self._server = Server()
         self._loop.run_until_complete(self._init_server())
 
@@ -113,6 +115,8 @@ class DHT_Client:
         try:
             self._server.stop()
             self._loop.run_until_complete(asyncio.sleep(1))
+            if self._loop.is_running():
+                self._loop.stop()
             self._loop.close()
         except Exception:
             pass

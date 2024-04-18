@@ -166,15 +166,12 @@ class UserSession:
 
             # Кодирование начального сообщения в Base64 и его подпись
             initial_message_b64: B64_FormatData = self._crypto.encode_to_b64(self._crypto.get_rsa_public_key())
-            message_signature_b64: B64_FormatData = self._crypto.sign_message(initial_message_b64)
 
             additional_info: AdditionalData = AdditionalData(
                 user_id=self._user_id,
                 user_name=self._user_name,
                 ecdh_public_key=self._crypto.get_public_key()  # Получение публичного ключа для обмена
             )
-            additional_info_b64: B64_FormatData = self._crypto.encode_to_b64(additional_info.model_dump_json())
-            additional_info_signature_b64: B64_FormatData = self._crypto.sign_message(additional_info_b64)
 
             # Сборка данных для отправки
             data_to_send = NetworkData(
@@ -183,9 +180,9 @@ class UserSession:
                     data_b64=initial_message_b64,
                     iv_b64=''
                 ),
-                signature=message_signature_b64,
+                signature='',
                 additional=additional_info,
-                signature_additional=additional_info_signature_b64
+                signature_additional=''
             )
             self._send_network_data(data_to_send)
 
@@ -309,10 +306,9 @@ class UserSession:
 
                 if not self._peer_rsa_public_key:
                     self._peer_rsa_public_key = self._crypto.decode_from_b64(received_data.encrypted_data.data_b64).decode('utf-8')
-                    print(self._peer_rsa_public_key)
-
-                if not self._verify_data(received_data):
-                    continue
+                else:
+                    if not self._verify_data(received_data):
+                        continue
 
                 self._logger.debug(f"Проверка подписи для клиента [{self._remote_address}]"
                                    f"[{self._peer_user_id} | {self._peer_user_name}] прошла успешно.")
