@@ -307,8 +307,9 @@ class UserSession:
                 
                 received_data: NetworkData = NetworkData.parse_raw(data)
 
-                if self._peer_rsa_public_key:
+                if not self._peer_rsa_public_key:
                     self._peer_rsa_public_key = self._crypto.decode_from_b64(received_data.encrypted_data.data_b64).decode('utf-8')
+                    print(self._peer_rsa_public_key)
 
                 if not self._verify_data(received_data):
                     continue
