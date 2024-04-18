@@ -11,13 +11,13 @@ import pyperclip
 from PIL import Image, ImageTk
 from enum import Enum
 
-from typing import Any
+from typing import Any, List
 
 import pytz
 from datetime import datetime
 
 from config import config
-from message import *
+from libs.message import *
 
 class CustomMessageType(Enum):
     ANY = 'ANY'
@@ -74,10 +74,13 @@ class _MessageBox(tk.Toplevel):
         frame = ttk.Frame(self._frame_main)
         frame.pack(expand=True, fill=tk.BOTH)
 
-        image = ImageTk.PhotoImage(Image.open(self._image_path))
-        label_image = ttk.Label(frame, image=image) # type: ignore
-        label_image.image = image  # keep a reference! # type: ignore
-        label_image.pack(side=tk.LEFT, padx=10, pady=10)
+        try:
+            image = ImageTk.PhotoImage(Image.open(self._image_path))
+            label_image = ttk.Label(frame, image=image) # type: ignore
+            label_image.image = image  # keep a reference! # type: ignore
+            label_image.pack(side=tk.LEFT, padx=10, pady=10)
+        except Exception:
+            pass
 
         label_text = ttk.Label(frame, text=self._message, wraplength=250)
         label_text.pack(side=tk.LEFT, padx=10, pady=10)
@@ -241,7 +244,7 @@ class Dialog(ttk.Frame):
         self._id = Dialog.objects_counter
         Dialog.objects_counter += 1
 
-        self._messages: list[MessageTextData] = []  # Список сообщений в диалоге
+        self._messages: List[MessageTextData] = []  # Список сообщений в диалоге
         self._message_id_counter = 0  # Счетчик ID сообщений
 
         self._setup_widgets()  # Метод установки виджетов
@@ -317,7 +320,7 @@ class Dialog(ttk.Frame):
                     # Если размер файла не превышает максимально допустимый, отправляем данные
                     try:
                         self._command(MessageData(
-                            type    = MessageType(type='File'),
+                            type    = MessageType.File,
                             message = MessageFileData(
                                 raw_data = base64.b64encode(file_data).decode('utf-8'),
                                 filename = os.path.basename(file)
@@ -367,7 +370,7 @@ class Dialog(ttk.Frame):
             # Вызов пользовательской функции, если она задана
             if self._command:
                 self._command(MessageData(
-                    type    = MessageType(type='Text'),
+                    type    = MessageType.Text,
                     message = self._messages[-1]
                 ))
     
@@ -414,7 +417,7 @@ class Dialog(ttk.Frame):
             # Сортируем сообщения по времени, на случай если порядок был нарушен
             self._messages.sort(key=lambda x: x.time)
 
-    def load_history(self, history: list[MessageTextData]) -> None:
+    def load_history(self, history: List[MessageTextData]) -> None:
         """
             Загружает историю сообщений в диалог.
 
@@ -443,7 +446,7 @@ class Dialog(ttk.Frame):
         if messages_size_before != len(self._messages):
             self._messages.sort(key=lambda x: datetime.fromisoformat(x.time))
 
-    def _update_counter(self, msg_id: str) -> None:
+    def _update_counter(self, msg_id: MessageIdType) -> None:
         """
         Обновляет счётчик сообщений на основе идентификатора сообщения.
 
@@ -570,11 +573,19 @@ class Dialog(ttk.Frame):
         self._button_send_input_message.config(state='disabled')
 
 
-class UnavaliableDialogId(Exception):
-    """Введен некорректный id диалога"""
+class UnavailableDialogIdError(Exception):
+    """Исключение, возникающее при вводе некорректного идентификатора диалога."""
 
-class EmptyActiveDialog(Exception):
-    """Попытка получения пустого активного диалога"""
+    def __init__(self, message="Введен некорректный идентификатор диалога."):
+        self.message = message
+        super().__init__(self.message)
+
+class EmptyActiveDialogError(Exception):
+    """Исключение, возникающее при попытке получить пустой активный диалог."""
+
+    def __init__(self, message="Попытка получения пустого активного диалога."):
+        self.message = message
+        super().__init__(self.message)
 
 
 class DialogManager(ttk.Frame):
@@ -608,7 +619,7 @@ class DialogManager(ttk.Frame):
         """
         self._username = username
 
-    def add_dialog(self, dialog_name: str, interlocutor_id: str, dialog_history: list[MessageTextData]) -> int:
+    def add_dialog(self, dialog_name: str, interlocutor_id: str, dialog_history: List[MessageTextData]) -> int:
         """
             Добавляет новую вкладку диалога в Notebook.
 
@@ -687,10 +698,13 @@ class DialogManager(ttk.Frame):
             dialog_id: Идентификатор диалога.
 
         Returns:
-            Объект диалога или None, если такого диалога нет.
+            Объект диалога.
+        
+        Raises:
+            UnavailableDialogIdError: Если введен некорректный id диалога.
         """
         if dialog_id not in self._dialogs:
-            raise UnavaliableDialogId
+            raise UnavailableDialogIdError
         return self._dialogs[dialog_id]
     
     def get_current_dialog(self) -> Dialog:
@@ -699,10 +713,13 @@ class DialogManager(ttk.Frame):
 
         Returns:
             Активный диалог.
+
+        Raises:
+            EmptyActiveDialogError: Если нет активного диалога.
         """
         try:
             current_tab = self._notebook_dialogs.select()
             widget = self.nametowidget(current_tab)
             return widget
         except Exception:
-            raise EmptyActiveDialog
+            raise EmptyActiveDialogError('Нет активного диалога для получения.')

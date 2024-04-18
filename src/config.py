@@ -1,13 +1,19 @@
 from platform import system
-from typing import Literal, NamedTuple
+from typing import Literal, NamedTuple, Union
+
+IPAddressType = str
+PortType = int
+
+FilenameType = str
+PathType = str
 
 class _LoggerConfig(NamedTuple):
     DEBUG_MODE: bool
     WITHOUT_CONSOLE: bool
 
 class _NetworkDHTConfig(NamedTuple):
-    PORT: int
-    IP: str
+    PORT: PortType
+    IP: IPAddressType
 
 class _NetworkPingConfig(NamedTuple):
     INTERVAL: int
@@ -15,7 +21,7 @@ class _NetworkPingConfig(NamedTuple):
 
 class _NetworkConfig(NamedTuple):
     DHT: _NetworkDHTConfig
-    CLIENT_COMMUNICATION_PORT: int
+    CLIENT_COMMUNICATION_PORT: PortType
     PING: _NetworkPingConfig
 
 class _FontConfig(NamedTuple):
@@ -32,35 +38,35 @@ class _WidgetsConfig(NamedTuple):
     INPUT_TEXT_FONT: _FontConfig
 
 class _PathConfig(NamedTuple):
-    LOG_DHT: str
-    LOG_CLIENT: str
-    DOWNLOAD: str
-    THEMES: str
-    ICONS: str
-    KEYS: str
+    LOG_DHT: PathType
+    LOG_CLIENT: PathType
+    DOWNLOAD: PathType
+    THEMES: PathType
+    ICONS: PathType
+    KEYS: PathType
 
 class _IconConfig(NamedTuple):
-    MAIN: str
-    INFO_L: str
-    INFO_S: str
-    WARNING_L: str
-    WARNING_S: str
-    ERROR_L: str
-    ERROR_S: str
-    SUCCESS_L: str
-    SUCCESS_S: str
+    MAIN: FilenameType
+    INFO_L: FilenameType
+    INFO_S: FilenameType
+    WARNING_L: FilenameType
+    WARNING_S: FilenameType
+    ERROR_L: FilenameType
+    ERROR_S: FilenameType
+    SUCCESS_L: FilenameType
+    SUCCESS_S: FilenameType
 
 class _ThemeConfig(NamedTuple):
-    DARK: str
-    LIGHT: str
-    DEFAULT: str
+    NIGHT: Union[str, PathType]
+    LIGHT: Union[str, PathType]
+    DEFAULT: Union[str, PathType]
 
 class _FilesConfig(NamedTuple):
-    HISTORY: str
-    CONFIG: str
-    DB_KEY: str
-    RSA_PRIV: str
-    RSA_PUB: str
+    HISTORY: FilenameType
+    CONFIG: FilenameType
+    DB_KEY: FilenameType
+    RSA_PRIV: FilenameType
+    RSA_PUB: FilenameType
     THEMES: _ThemeConfig
     ICONS: _IconConfig
 
@@ -100,7 +106,7 @@ class _Config(NamedTuple):
     )
 
     THEME: _ThemeConfig = _ThemeConfig(
-        DARK    = 'forest-dark',
+        NIGHT   = 'forest-dark',
         LIGHT   = 'forest-light',
         DEFAULT = 'vista' if system() == 'Windows' else 'clam'
     )
@@ -110,7 +116,7 @@ class _Config(NamedTuple):
         LOG_DHT     = f'{BASE_PATH}/log/dht/',
         LOG_CLIENT  = f'{BASE_PATH}/log/client/',
         DOWNLOAD    = 'download',
-        THEMES       = f'{BASE_PATH}/themes/',
+        THEMES      = f'{BASE_PATH}/themes/',
         ICONS       = f'{BASE_PATH}/icons/',
         KEYS        = f'{BASE_PATH}/keys/'
     )
@@ -121,7 +127,7 @@ class _Config(NamedTuple):
         RSA_PRIV    = 'rsa_key',
         RSA_PUB     = 'rsa_key.pub',
         THEMES      = _ThemeConfig(
-            DARK    = f'{PATHS.THEMES}forest-dark.tcl',
+            NIGHT   = f'{PATHS.THEMES}forest-dark.tcl',
             LIGHT   = f'{PATHS.THEMES}forest-light.tcl',
             DEFAULT = ''
             ),

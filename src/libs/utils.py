@@ -1,4 +1,5 @@
 from dataclasses import MISSING, asdict, fields, is_dataclass
+import re
 from typing import Any, Dict, Iterable, List, Mapping, Type, Union, get_type_hints
 
 
@@ -70,3 +71,19 @@ def from_dict(obj_type: Type[Any], obj_dict: Dict[str, Any]) -> Any:
     # Возвращаем словарь, если тип не является ни датаклассом, ни NamedTuple
     else:
         return obj_dict
+    
+
+def strip_bad_symbols(text: str) -> str:
+    """
+        Удаляет недопустимые символы из строки.
+
+        Примечание:
+            Допускаются только буквы обоих регистров, цифры и знак _
+
+    Args:
+        text: Исходная строки
+
+    Returns:
+        str: Валидная строка
+    """
+    return re.sub(r'[^\w]', "", text) # r"[^\w_.)( -]"

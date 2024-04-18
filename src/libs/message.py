@@ -1,19 +1,26 @@
+from enum import Enum
 from pydantic import BaseModel
 from typing import Literal, Union
 
-class MessageType(BaseModel):
-    type: Literal['Text', 'File']
+from config import FilenameType
+
+MessageIdType = str
+ISO_FormatData = str
+
+class MessageType(Enum):
+    Text = 'Text'
+    File = 'File'
 
 class MessageTextData(BaseModel):
-    id: str
-    time: str
+    id: MessageIdType
+    time: ISO_FormatData
     author: str
     message: str
 
 class MessageFileData(BaseModel):
     raw_data: str
-    filename: str
+    filename: FilenameType
 
 class MessageData(BaseModel):
     type: MessageType
-    message: Union[MessageTextData, MessageFileData]
+    message: Union[MessageTextData, MessageFileData, MessageIdType, FilenameType]

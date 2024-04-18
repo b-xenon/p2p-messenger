@@ -10,3 +10,4 @@ __pycache__/
 
 
 todo.txt
+src/libs/*_old.py
