@@ -165,7 +165,7 @@ class UserSession:
             self._connection_socket.connect(self._remote_address)
 
             # Кодирование начального сообщения в Base64 и его подпись
-            initial_message_b64: B64_FormatData = self._crypto.encrypt_with_rsa(self._crypto.get_rsa_public_key(), self._peer_rsa_public_key)
+            initial_message_b64: B64_FormatData = self._crypto.encode_to_b64(self._crypto.get_rsa_public_key())
             message_signature_b64: B64_FormatData = self._crypto.sign_message(initial_message_b64)
 
             additional_info: AdditionalData = AdditionalData(
@@ -308,7 +308,7 @@ class UserSession:
                 received_data: NetworkData = NetworkData.parse_raw(data)
 
                 if self._peer_rsa_public_key:
-                    self._peer_rsa_public_key = self._crypto.decrypt_with_rsa(received_data.encrypted_data.data_b64)
+                    self._peer_rsa_public_key = self._crypto.decode_from_b64(received_data.encrypted_data.data_b64).decode('utf-8')
 
                 if not self._verify_data(received_data):
                     continue
