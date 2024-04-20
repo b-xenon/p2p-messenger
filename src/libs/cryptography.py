@@ -310,23 +310,24 @@ class Encrypter:
         """
             Загружает ключ шифрования базы данных из файла, создавая его при необходимости.
         """
-        key_path = os.path.join(key_path, current_user_id, peer_id)
-        db_key = os.path.join(key_path, config.FILES.DB_KEY)
+        _key_path = os.path.join(key_path, current_user_id, peer_id)
+        db_key = os.path.join(_key_path, config.FILES.DB_KEY)
         
-        os.makedirs(key_path, exist_ok=True)
+        os.makedirs(_key_path, exist_ok=True)
         if os.path.exists(db_key):
             with open(db_key, 'rb') as key_file:
                 return key_file.read()
         
         # Если существует в другом аакаунте, то просто копируем 
         another_db_key = os.path.join(key_path, peer_id, current_user_id, config.FILES.DB_KEY)
+        print(another_db_key)
         if os.path.exists(another_db_key):
             with open(another_db_key, 'rb') as adb_file, open(db_key, 'wb') as odb_file:
                 file_data = adb_file.read()
                 odb_file.write(file_data)
                 return file_data
 
-        return Encrypter._create_database_encode_key(key_path)
+        return Encrypter._create_database_encode_key(_key_path)
 
     @staticmethod
     def _save_database_encode_key(key: bytes, key_path: PathType) -> None:
