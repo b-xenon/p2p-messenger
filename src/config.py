@@ -84,7 +84,7 @@ class _Config(NamedTuple):
 
     WIDGETS: _WidgetsConfig = _WidgetsConfig(
         MAX_TEXT_SYMBOLS_NUMBER = 5000,
-        MAX_FILE_SIZE           = 5000,
+        MAX_FILE_SIZE           = 50000,
         DIALOG_AUTHOR_FONT      = _FontConfig(
             FAMILY  = 'Calibri',
             SIZE    = 10,

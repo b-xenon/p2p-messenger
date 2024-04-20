@@ -655,9 +655,7 @@ class DialogManager(ttk.Frame):
         element = self._notebook_dialogs.identify(event.x, event.y)
         if "label" in element:
             index = self._notebook_dialogs.index("@{},{}".format(event.x, event.y))
-            
-            current_tab = self._notebook_dialogs.select(index)
-            return self.nametowidget(current_tab)
+            return self._notebook_dialogs.nametowidget(self._notebook_dialogs.tabs()[index])
         return None
 
     def _handle_right_click(self, event) -> None:

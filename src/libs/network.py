@@ -1031,7 +1031,7 @@ class ClientManager:
         """
         self._logger.debug('Подключаюсь к DHT...')
         self.dht = DHT_Client(
-            listen_port=config.NETWORK.DHT.PORT - 1,
+            listen_port=config.NETWORK.DHT.PORT - 2,
             dht_ip=config.NETWORK.DHT.IP,
             dht_port=config.NETWORK.DHT.PORT
         )
@@ -1294,8 +1294,8 @@ class ClientHelper:
                                             args=(app_root, event_data.event_data.data, event_data.event_data.user_id),
                                             daemon=True).start()
                         case NetworkEventType.FILE_ACCEPTED:
-                            self._logger.debug(f'Файл [{event_data.event_data.data.filename}] успешно передан клиенту [{event_data.event_data.user_id}].')# type: ignore
-                            CustomMessageBox.show(app_root, 'Успешно', f'Файл [{event_data.event_data.data.filename}] успешно передан клиенту [{event_data.event_data.user_id}].', CustomMessageType.SUCCESS)# type: ignore
+                            self._logger.debug(f'Файл [{event_data.event_data.data}] успешно передан клиенту [{event_data.event_data.user_id}].')# type: ignore
+                            CustomMessageBox.show(app_root, 'Успешно', f'Файл [{event_data.event_data.data}] успешно передан клиенту [{event_data.event_data.user_id}].', CustomMessageType.SUCCESS)# type: ignore
                         case NetworkEventType.ALREADY_EXISTS:
                             self._logger.debug(f'Диалог с клиентом [{event_data.event_data.user_id}] от имени [{self._client._user_id}] уже открыт!')
                             CustomMessageBox.show(app_root, 'Внимание', f'Диалог с клиентом [{event_data.event_data.user_id}] от имени [{self._client._user_id}] уже открыт!', CustomMessageType.WARNING)
