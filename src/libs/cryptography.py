@@ -1,6 +1,5 @@
 from base64 import b64encode, b64decode
 import binascii
-import shutil
 from typing import Union
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.Protocol.KDF import HKDF
@@ -322,9 +321,10 @@ class Encrypter:
         # Если существует в другом аакаунте, то просто копируем 
         another_db_key = os.path.join(key_path, peer_id, current_user_id, config.FILES.DB_KEY)
         if os.path.exists(another_db_key):
-            shutil.copyfile(another_db_key, db_key)
-            with open(db_key, 'rb') as key_file:
-                return key_file.read()
+            with open(another_db_key, 'rb') as adb_file, open(db_key, 'wb') as odb_file:
+                file_data = adb_file.read()
+                odb_file.write(file_data)
+                return file_data
 
         return Encrypter._create_database_encode_key(key_path)
 
