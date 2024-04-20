@@ -357,7 +357,7 @@ class UserSession:
                 self.close()
             
             except Exception as e:
-                self._logger.debug(f'Произошла непредвиденная ошибка [{e}]. Завершаю сессию.')
+                self._logger.error(f'Произошла непредвиденная ошибка [{e}]. Завершаю сессию.')
                 self.close()
 
     def _clear_socket_buffer(self) -> None:
@@ -620,6 +620,7 @@ class UserSession:
         Примечание:
             Если сообщение является повторным и уже содержится в истории, обработка не происходит.
         """
+        message_id_old = message.id
         message.id = self._change_perception_for_message_id(message.id)
 
         # Если это ресенд, то проверяем, есть ли он в темп буфере
@@ -632,7 +633,7 @@ class UserSession:
         self._dialog_history_ids.append(message.id)
 
         # Отправляем ответ
-        self._send_recv(MessageData(type=MessageType.Text, message=message.id), resend_flag)
+        self._send_recv(MessageData(type=MessageType.Text, message=message_id_old), resend_flag)
 
 
     def _change_perception_for_message_id(self, message_id: MessageIdType) -> MessageIdType:

@@ -57,7 +57,7 @@ class DatabaseManager:
         except sqlite3.Error as e:
             self._logger.error(f'Ошибка при добавлении данных в БД для клиента [{self._peer_id}]. Ошибка [{e}].')
         finally:
-            if conn:
+            if conn: # type: ignore
                 conn.close()  
 
     def load_data(self) -> Tuple[List[MessageTextData], Dict[MessageIdType, MessageTextData]]:
@@ -116,6 +116,6 @@ class DatabaseManager:
         except sqlite3.Error as e:
             self._logger.error(f'Не удалось подключиться к базе данных по пути [{DatabaseManager.DB_PATH}]. Ошибка [{e}].')
         finally:
-            if conn:
+            if conn: # type: ignore
                 conn.close()
         return sent_messages, unsent_messages
