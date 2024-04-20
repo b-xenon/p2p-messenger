@@ -229,12 +229,13 @@ class WinApp(TkinterDnD.Tk):
     def __set_my_dht_key(self) -> None:
         if not self._user_information_has_been_entered.get():
             return
-        
-        self._client_helper.set_client_info(self._user_id_var.get(), self._user_name_var.get(), self._use_local_ip_var.get())
-        ip_address = self._client_helper.get_ip()
 
         self._entry_my_dht_key.config(state='disabled')
         self._button_enter_my_dht_key.config(state='disabled')
+
+        self._client_helper.set_client_info(self._user_id_var.get(), self._user_name_var.get(), self._use_local_ip_var.get())
+        ip_address = self._client_helper.get_ip()
+
         self.title(f"Client: ip[{ip_address}] | key[{self._user_id_var.get()}]")
         self._dialog_manager.set_username(self._user_name_var.get())
 

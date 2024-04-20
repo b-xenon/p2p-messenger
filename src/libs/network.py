@@ -715,7 +715,7 @@ class UserSession:
         match decrypted_data.type:
             case MessageType.Text:
                 self._send_event_data_confirmation(self._outbound_message_buffer[decrypted_data.message], received_data.additional.resend_flag) # type: ignore
-                self._save_message_in_db([self._outbound_message_buffer[decrypted_data.message]]) # type: ignore
+                self._database.save_data(messages=[self._outbound_message_buffer[decrypted_data.message]]) # type: ignore
                 self._dialog_history_ids.append(decrypted_data.message) # type: ignore
                 del self._outbound_message_buffer[decrypted_data.message] # type: ignore
             case MessageType.File:
