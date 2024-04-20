@@ -540,6 +540,9 @@ class UserSession:
 
         # Запуск постоянной проверки соединения
         threading.Thread(target=self._send_ping, daemon=True).start()
+        
+        # Обработка полученных данных
+        self._recv_ack(received_data)
 
     def _send_ping(self) -> None:
         """

@@ -203,7 +203,7 @@ class WinApp(TkinterDnD.Tk):
         entry_alien_dht_key.pack(padx=10, pady=10)
 
         button_connect_to_another_client = ttk.Button(frame_alien_dht_key, text='Подключиться/Отключиться',
-                                                       width=30, command=self._connect_or_disconnect_to_another_user)
+                                                       width=30, command=self._connect_to_another_user)
         button_connect_to_another_client.pack(padx=10, pady=10)
 
         def _send_message_to_another_client(message: MessageData) -> None:
@@ -250,7 +250,7 @@ class WinApp(TkinterDnD.Tk):
             )
         )
 
-    def _connect_or_disconnect_to_another_user(self) -> None:
+    def _connect_to_another_user(self) -> None:
         if not self._user_information_has_been_entered.get():
             self._logger.error("Перед подключением необходимо ввести свой ключ устройства!")
             CustomMessageBox.show(self, 'Ошибка', "Перед подключением необходимо ввести свой ключ устройства!", CustomMessageType.ERROR)
@@ -264,12 +264,6 @@ class WinApp(TkinterDnD.Tk):
         if not self._check_data_for_validity(self._entry_alien_dht_key_var.get()):
             self._logger.error(f"В введенном ключе есть недопустимые символы!")
             CustomMessageBox.show(self, 'Ошибка', f"В введенном ключе есть недопустимые символы!", CustomMessageType.ERROR)
-            return
-
-        if self._client_helper.is_dialog_active(self._entry_alien_dht_key_var.get()):
-            self._logger.debug(f"Отключаюсь от {self._entry_alien_dht_key_var.get()}.")
-            self._client_helper.close_session(self._entry_alien_dht_key_var.get())
-            CustomMessageBox.show(self, 'Инфо', f'Общение с [{self._entry_alien_dht_key_var.get()}] завершено!', CustomMessageType.SUCCESS)
             return
 
         threading.Thread(target=self.__connect_to_another_client, daemon=True).start()
