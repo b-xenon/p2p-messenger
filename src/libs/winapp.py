@@ -229,7 +229,8 @@ class WinApp(TkinterDnD.Tk):
     def __set_my_dht_key(self) -> None:
         if not self._user_information_has_been_entered.get():
             return
-
+        
+        self._client_helper.set_client_info(self._user_id_var.get(), self._user_name_var.get(), self._use_local_ip_var.get())
         ip_address = self._client_helper.get_ip()
 
         self._entry_my_dht_key.config(state='disabled')
@@ -239,14 +240,14 @@ class WinApp(TkinterDnD.Tk):
 
         self._logger.debug(f'Добавляю свой ip [{ip_address}] в DHT по ключу [{self._entry_my_dht_key_var.get()}].')
         
-        threading.Thread(target=self._client_helper.set_data_to_dht, args=(
+        self._client_helper.set_data_to_dht(
             self._entry_my_dht_key_var.get(),
             DHTPeerProfile(
                 avaliable_ip=ip_address,
                 avaliable_port=config.NETWORK.CLIENT_COMMUNICATION_PORT,
                 rsa_public_key=Encrypter.load_rsa_public_key(config.PATHS.KEYS, self._user_id_var.get())
             )
-        ), daemon=True).start()
+        )
 
     def _connect_or_disconnect_to_another_user(self) -> None:
         if not self._user_information_has_been_entered.get():
@@ -351,15 +352,10 @@ class WinApp(TkinterDnD.Tk):
                 self._logger.error('Введенное имя содержит недопустимые символы!')
                 return
 
-            threading.Thread(
-                target=self._client_helper.set_client_info,
-                args=(self._user_id_var.get(), self._user_name_var.get(), self._use_local_ip_var.get()),
-                daemon=True
-            ).start()
-            
             self._user_information_has_been_entered.set(True)
             window.destroy()
-            self.__set_my_dht_key()
+            threading.Thread(target=self.__set_my_dht_key, daemon=True).start()            
+
 
         button = ttk.Button(frame, text='Продолжить', width=30, command=_continue)
         button.pack(padx=15, pady=10)
