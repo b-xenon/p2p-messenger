@@ -667,10 +667,11 @@ class DialogManager(ttk.Frame):
         Args:
             event (Any): Событие
         """
-            dialog: Dialog = self.__handle_click(event) # type: ignore
-            if dialog is not None:
-                self._right_click_handler(dialog.get_interlocutor_id())
-                self.inactivate_dialog(dialog.get_id())
+        widget = self.__handle_click(event)
+        if widget is not None:
+            dialog: Dialog = widget
+            self._right_click_handler(dialog.get_interlocutor_id())
+            self.inactivate_dialog(dialog.get_id())
 
     def _handle_middle_click(self, event) -> None:
         """
@@ -679,10 +680,11 @@ class DialogManager(ttk.Frame):
         Args:
             event (Any): Событие
         """
-            dialog: Dialog = self.__handle_click(event) # type: ignore
-            if dialog is not None:
-                self._middle_click_handler(dialog.get_interlocutor_id())
-                self.hide_dialog(dialog.get_id())
+        widget = self.__handle_click(event)
+        if widget is not None:
+            dialog: Dialog = widget
+            self._middle_click_handler(dialog.get_interlocutor_id())
+            self.hide_dialog(dialog.get_id())
 
     def set_username(self, username: str) -> None:
         """
