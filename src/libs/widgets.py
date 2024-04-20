@@ -426,8 +426,6 @@ class Dialog(ttk.Frame):
         """
         if not history:
             return
-        
-        print(history)
 
         # Сортировка истории по времени
         history = sorted(history, key=lambda x: datetime.fromisoformat(x.time))

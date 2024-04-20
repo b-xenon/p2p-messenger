@@ -290,8 +290,8 @@ class WinApp(TkinterDnD.Tk):
         """
         window = tkinter.Toplevel(self)
         window.title('Ввод пользовательской информации')
-        window.geometry('500x200')
-        window.minsize(500, 200)
+        window.geometry('500x230')
+        window.minsize(500, 230)
         window.resizable(False, False)
 
         try:
