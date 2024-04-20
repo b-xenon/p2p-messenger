@@ -344,10 +344,10 @@ class Dialog(ttk.Frame):
             Отправляет сообщение, указанное пользователем, и обновляет интерфейс диалога.
         """
         # Получаем текст из Text widget
-        message = self._frame_input.get_text()
+        message = self._frame_input.get_text().strip()
         
         # Если сообщение не пустое, обрабатываем его
-        if message.strip():
+        if message:
             # Фиксируем текущее время в московском часовом поясе
             current_time = datetime.now(self._moscow_tz)
             
@@ -427,6 +427,8 @@ class Dialog(ttk.Frame):
         if not history:
             return
         
+        print(history)
+
         # Сортировка истории по времени
         history = sorted(history, key=lambda x: datetime.fromisoformat(x.time))
 
