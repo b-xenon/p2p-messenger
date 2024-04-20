@@ -379,6 +379,24 @@ class UserSession:
         """
         self._last_ping_time = time.time()      # Обновляем время последнего пинга
 
+    def __recvall(self, number_of_bytes: int) -> bytearray:
+        """
+            Получение данных из сокета с обработкой размера сообщения.
+
+        Raises:
+            socket.timeout: Если не удалось получить данные из сокета
+
+        Returns:
+            str: Данные из сокета
+        """
+        data = bytearray()
+        while len(data) < number_of_bytes:
+            packet = self._connection_socket.recv(number_of_bytes - len(data))
+            if not packet:
+                raise socket.timeout("No data received!")
+            data.extend(packet)
+        return data
+
     def _receive_data(self) -> str:
         """
             Получение данных из сокета с обработкой размера сообщения.
@@ -389,15 +407,11 @@ class UserSession:
         Returns:
             str: Данные из сокета
         """
-        raw_data_size: bytes = self._connection_socket.recv(self._int_size_for_message_length)
-        if not raw_data_size:
-            raise socket.timeout("No data received for the size")
+        raw_data_size: bytes = self.__recvall(self._int_size_for_message_length)
         
         data_size: int = int.from_bytes(raw_data_size, byteorder='big')
-        data: str = self._connection_socket.recv(data_size).decode()
+        data: str = self.__recvall(data_size).decode()
         
-        if not data:
-            raise socket.timeout("No data received for the payload")
         return data
     
     def _handle_init(self, received_data: NetworkData) -> None:
