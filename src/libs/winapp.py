@@ -7,7 +7,6 @@ from pydantic import ValidationError
 from tkinterdnd2 import TkinterDnD
 
 from enum import Enum
-from typing import NamedTuple
 from dataclasses import dataclass
 
 from config import config
@@ -15,7 +14,7 @@ from dht import DHTPeerProfile, EmptyDHTDataError
 from libs.cryptography import Encrypter
 from libs.message import MessageData
 from libs.mylogger import MyLogger, MyLoggerType
-from libs.network import ClientHelper
+from libs.network import ClientHelper, UserIdType
 from libs.utils import strip_bad_symbols
 from libs.widgets import CustomMessageBox, CustomMessageType, DialogManager
 
@@ -202,7 +201,7 @@ class WinApp(TkinterDnD.Tk):
         entry_alien_dht_key = ttk.Entry(frame_alien_dht_key, width=30, textvariable=self._entry_alien_dht_key_var)
         entry_alien_dht_key.pack(padx=10, pady=10)
 
-        button_connect_to_another_client = ttk.Button(frame_alien_dht_key, text='Подключиться/Отключиться',
+        button_connect_to_another_client = ttk.Button(frame_alien_dht_key, text='Подключиться',
                                                        width=30, command=self._connect_to_another_user)
         button_connect_to_another_client.pack(padx=10, pady=10)
 
@@ -212,6 +211,21 @@ class WinApp(TkinterDnD.Tk):
 
         self._dialog_manager = DialogManager(self._frame_main, command=lambda msg: _send_message_to_another_client(msg))
         self._dialog_manager.pack(expand=True, fill='both', padx=10, pady=10)
+
+        self._dialog_manager.add_right_click_handler(lambda pid: self._disconnect_from_client(pid))
+        self._dialog_manager.add_middle_click_handler(lambda pid: self._disconnect_from_client(pid))
+
+    def _disconnect_from_client(self, peer_id: UserIdType) -> None:
+        """
+            Отключаемся от клиента с заданным peer_id.
+
+        Args:
+            peer_id (UserIdType): Идентификатор собеседника
+        """
+        if self._client_helper.is_dialog_active(peer_id):
+            self._logger.debug(f"Отключаюсь от {peer_id}.")
+            self._client_helper.close_session(peer_id)
+            CustomMessageBox.show(self, 'Инфо', f'Общение с [{peer_id}] завершено!', CustomMessageType.SUCCESS)
 
     def _set_my_dht_key(self) -> None:
         if not self._entry_my_dht_key_var.get():

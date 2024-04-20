@@ -1,3 +1,4 @@
+import platform
 import tkinter as tk
 from tkinter import ttk
 from tkinterdnd2 import DND_FILES
@@ -11,7 +12,7 @@ import pyperclip
 from PIL import Image, ImageTk
 from enum import Enum
 
-from typing import Any, List
+from typing import Any, List, NamedTuple
 
 import pytz
 from datetime import datetime
@@ -588,6 +589,10 @@ class EmptyActiveDialogError(Exception):
         super().__init__(self.message)
 
 
+class DialogInfo(NamedTuple):
+    tab_id: int
+    dialog: Dialog
+
 class DialogManager(ttk.Frame):
     def __init__(self, master: Any, username: str = '', command: Any = None, **kwargs) -> None:
         """
@@ -601,15 +606,84 @@ class DialogManager(ttk.Frame):
         """
         super().__init__(master, **kwargs)
 
-        self._master = master
-        self._username = username
-        self._command = command
-        self._dialogs = {}
+        self._master: Any = master
+        self._username: str = username
+        self._command: Any = command
+        self._dialogs: dict[int, DialogInfo] = {}
+        self._hidden_tabs: dict[int, tuple[Any, str]] = {}
+
+        self._right_click_handler: Any = None
+        self._middle_click_handler: Any = None
 
         # Создание виджета Notebook
         self._notebook_dialogs = ttk.Notebook(self)
         self._notebook_dialogs.pack(expand=True, fill='both', padx=10, pady=10)
-    
+
+        _right_click = '<Button-3>' if platform.system() != 'Darwin' else '<Button-2>' # Если не макось
+        _middle_click = '<Button-2>' if platform.system() != 'Darwin' else '<Button-3>' # Если не макось
+        self._notebook_dialogs.bind(_right_click, self._handle_right_click)
+        self._notebook_dialogs.bind(_middle_click, self._handle_middle_click)
+
+    def add_right_click_handler(self, handler: Any) -> None:
+        """
+            Добавляем функцию-обработчик для события нажатия правой кнопкой мыши на вкладку.
+        
+        Args:
+            handler (Any): функция-обработчик
+        """
+        self._right_click_handler = handler
+
+    def add_middle_click_handler(self, handler: Any) -> None:
+        """
+            Добавляем функцию-обработчик для события нажатия центральной кнопкой мыши на вкладку.
+        
+        Args:
+            handler (Any): функция-обработчик
+        """
+        self._middle_click_handler = handler
+
+    def __handle_click(self, event: Any) -> Union[Dialog, None]:
+        """
+            Обрабатываем события нажатия на вкладку.
+
+        Args:
+            event (Any): Событие
+
+        Returns:
+            Диалог нажатой вкладки.
+        """ 
+        element = self._notebook_dialogs.identify(event.x, event.y)
+        if "label" in element:
+            index = self._notebook_dialogs.index("@{},{}".format(event.x, event.y))
+            
+            current_tab = self._notebook_dialogs.select(index)
+            return self.nametowidget(current_tab)
+        return None
+
+    def _handle_right_click(self, event) -> None:
+        """
+            Обрабатываем события нажатия правой кнопкой мыши на вкладку.
+
+        Args:
+            event (Any): Событие
+        """
+            dialog: Dialog = self.__handle_click(event) # type: ignore
+            if dialog is not None:
+                self._right_click_handler(dialog.get_interlocutor_id())
+                self.inactivate_dialog(dialog.get_id())
+
+    def _handle_middle_click(self, event) -> None:
+        """
+            Обрабатываем события нажатия центральной кнопкой мыши на вкладку.
+
+        Args:
+            event (Any): Событие
+        """
+            dialog: Dialog = self.__handle_click(event) # type: ignore
+            if dialog is not None:
+                self._middle_click_handler(dialog.get_interlocutor_id())
+                self.hide_dialog(dialog.get_id())
+
     def set_username(self, username: str) -> None:
         """
             Устанавливает или обновляет имя пользователя.
@@ -640,7 +714,7 @@ class DialogManager(ttk.Frame):
             command         = self._command
         )
 
-        self._dialogs[dialog.get_id()] = dialog
+        self._dialogs[dialog.get_id()] = DialogInfo(tab_id=self._notebook_dialogs.index('end'), dialog=dialog)
         dialog.load_history(dialog_history)
 
         dialog.pack(expand=True, fill='both')
@@ -657,7 +731,7 @@ class DialogManager(ttk.Frame):
             dialog_id: Идентификатор диалога.
         """
         if dialog_id in self._dialogs:
-            self._dialogs[dialog_id].inactivate()
+            self._dialogs[dialog_id].dialog.inactivate()
 
     def hide_dialog(self, dialog_id: int) -> None:
         """
@@ -667,7 +741,13 @@ class DialogManager(ttk.Frame):
             dialog_id: Идентификатор диалога.
         """
         if dialog_id in self._dialogs:
-            self._dialogs[dialog_id].pack_forget()
+            self._hidden_tabs.update({
+                self._dialogs[dialog_id].tab_id: (
+                    self._notebook_dialogs.tabs()[self._dialogs[dialog_id].tab_id],
+                    self._notebook_dialogs.tab(self._dialogs[dialog_id].tab_id, 'text'),
+                )
+            })
+            self._notebook_dialogs.hide(self._dialogs[dialog_id].tab_id)
         
     def load_dialog(self, dialog_id: int) -> None:
         """
@@ -677,9 +757,14 @@ class DialogManager(ttk.Frame):
             dialog_id: Идентификатор диалога.
         """
         if dialog_id in self._dialogs:
-            if not self._dialogs[dialog_id].winfo_viewable():
-                self._dialogs[dialog_id].pack(expand=True, fill='both')
-            self._dialogs[dialog_id].activate()
+            if self._dialogs[dialog_id].tab_id in self._hidden_tabs:
+                tab, text = self._hidden_tabs[self._dialogs[dialog_id].tab_id]
+                self._notebook_dialogs.add(tab, text=text)
+                self._notebook_dialogs.select(tab)
+
+                del self._hidden_tabs[self._dialogs[dialog_id].tab_id]
+
+            self._dialogs[dialog_id].dialog.activate()
 
     def size(self) -> int:
         """
@@ -705,7 +790,7 @@ class DialogManager(ttk.Frame):
         """
         if dialog_id not in self._dialogs:
             raise UnavailableDialogIdError
-        return self._dialogs[dialog_id]
+        return self._dialogs[dialog_id].dialog
     
     def get_current_dialog(self) -> Dialog:
         """
