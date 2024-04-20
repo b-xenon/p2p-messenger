@@ -1,4 +1,5 @@
 import platform
+import threading
 import tkinter as tk
 from tkinter import ttk
 from tkinterdnd2 import DND_FILES
@@ -294,31 +295,23 @@ class Dialog(ttk.Frame):
         if self._button_send_input_message['state'] == 'disabled':
             return
 
-        # Разбиваем данные события на список путей к файлам
-        files = self.tk.splitlist(event.data)
-        for file in files:
-            # Проверяем, является ли путь файлом
-            if not os.path.isfile(file):
-                CustomMessageBox.show(self._master, 'Ошибка', f'Можно передавать только файлы!', CustomMessageType.ERROR)
-                continue
 
-            # Читаем данные файла
-            with open(file, 'rb') as bin_file:
-                file_data = b''
-                was_eof = False
-                while True:
-                    chunk = bin_file.read(1024)
-                    if not chunk:
-                        was_eof = True
-                        break  # Достигнут конец файла
-                    file_data += chunk
+        def __send_files(files: list[FilenameType]):
+            for file in files:
+                # Проверяем, является ли путь файлом
+                if not os.path.isfile(file):
+                    CustomMessageBox.show(self._master, 'Ошибка', f'Можно передавать только файлы!', CustomMessageType.ERROR)
+                    continue
 
-                    # Проверяем размер считанных данных
-                    if len(file_data) > config.WIDGETS.MAX_FILE_SIZE:
-                        CustomMessageBox.show(self._master, 'Ошибка', f'Слишком большой файл! Максимальный размер: {config.WIDGETS.MAX_FILE_SIZE} байт.', CustomMessageType.ERROR)
-                        break
-                if was_eof:
-                    # Если размер файла не превышает максимально допустимый, отправляем данные
+                if os.path.getsize(file) > config.WIDGETS.MAX_FILE_SIZE:
+                    CustomMessageBox.show(self._master, 'Ошибка', f'Слишком большой файл [{file}]!\nМаксимальный размер: {config.WIDGETS.MAX_FILE_SIZE} байт.', CustomMessageType.ERROR)
+                    continue
+
+                # Если размер файла не превышает максимально допустимый, отправляем данные
+                # Читаем данные файла
+                with open(file, 'rb') as bin_file:
+                    file_data: bytes = bin_file.read(config.WIDGETS.MAX_FILE_SIZE)
+                        
                     try:
                         self._command(MessageData(
                             type    = MessageType.File,
@@ -329,6 +322,10 @@ class Dialog(ttk.Frame):
                         ))
                     except Exception as e:
                         CustomMessageBox.show(self._master, 'Ошибка', f'Произошла ошибка [{e}]!', CustomMessageType.ERROR)
+
+        # Разбиваем данные события на список путей к файлам
+        files = self.tk.splitlist(event.data)
+        threading.Thread(target=__send_files, args=(files, ), daemon=True).start()
 
     def _change_color(self, *args):
         """
