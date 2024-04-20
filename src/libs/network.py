@@ -208,8 +208,6 @@ class UserSession:
             is_resended (bool): Флаг, указывающий, нужно ли повторно отправить сообщение.
 
         """
-        self._logger.debug(f"Отправляю Send сообщение клиенту [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}].")
-
         # Сериализация данных сообщения в JSON
         message_json = message.model_dump_json()
         encrypted_message: EncryptedData = self._crypto.encrypt(message_json)
@@ -717,9 +715,10 @@ class UserSession:
         
         match decrypted_data.type:
             case MessageType.Text:
-                self._send_event_data_confirmation(self._outbound_message_buffer[decrypted_data.message], received_data.additional.resend_flag) # type: ignore
-                self._database.save_data(messages=[self._outbound_message_buffer[decrypted_data.message]]) # type: ignore
-                self._dialog_history_ids.append(decrypted_data.message) # type: ignore
+                if not received_data.additional.resend_flag:
+                    self._send_event_data_confirmation(self._outbound_message_buffer[decrypted_data.message], received_data.additional.resend_flag) # type: ignore
+                    self._database.save_data(messages=[self._outbound_message_buffer[decrypted_data.message]]) # type: ignore
+                    self._dialog_history_ids.append(decrypted_data.message) # type: ignore
                 del self._outbound_message_buffer[decrypted_data.message] # type: ignore
             case MessageType.File:
                 self._send_event_file_confirmation(decrypted_data.message) # type: ignore
@@ -917,9 +916,6 @@ class UserSession:
         """
             Отправляет сообщение Exist.
         """
-        # Логгирование попытки установления соединения
-        self._logger.debug(f"Отправляю сообщение EXIST клиенту [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}].")
-
         # Кодирование начального сообщения в Base64 и его подпись
         exist_message_b64: B64_FormatData = self._crypto.encrypt_with_rsa('Session already exists!', self._peer_rsa_public_key)
         encrypted_data: EncryptedData = EncryptedData(
@@ -1068,7 +1064,7 @@ class ClientManager:
 
         self._logger.debug("Закрываю все сессии...")
         # Отправить сообщения всем сессиям о закрытии
-        for session in self._sessions.values():
+        for session in list(self._sessions.values()):
             session.close()
         
         self.event.messages.put(
