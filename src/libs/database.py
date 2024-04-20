@@ -14,14 +14,24 @@ class DatabaseManager:
     def __init__(self, user_id: str, logger: Logger) -> None:
         self._user_id: str = user_id
         self._logger: Logger = logger
-        self._database_key: bytes = Encrypter.load_database_encode_key(config.PATHS.KEYS, self._user_id)
+        self._database_key: bytes = b''
         
         self._table_name = ''
 
     def set_table_name(self, user_id: str, peer_id: str):
+        """
+            Создает шаблоны названий для таблицы базы данных для данного диалога.
+
+        Args:
+            user_id (str): Наш id
+            peer_id (str): Id собеседника
+        """
         self._peer_id = peer_id
         self.table_name_template1 = strip_bad_symbols(f'table_{user_id}_{peer_id}')
         self.table_name_template2 = strip_bad_symbols(f'table_{peer_id}_{user_id}')
+
+        self._database_key = Encrypter.load_database_encode_key(config.PATHS.KEYS, self._user_id, self._peer_id)
+
 
     def connect(self):
         """ Устанавливает соединение с базой данных и возвращает объект соединения. """

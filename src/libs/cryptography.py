@@ -1,5 +1,6 @@
 from base64 import b64encode, b64decode
 import binascii
+import shutil
 from typing import Union
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.Protocol.KDF import HKDF
@@ -306,15 +307,25 @@ class Encrypter:
         return key
 
     @staticmethod
-    def load_database_encode_key(key_path: PathType, current_user_id: str) -> bytes:
+    def load_database_encode_key(key_path: PathType, current_user_id: str, peer_id: str) -> bytes:
         """
             Загружает ключ шифрования базы данных из файла, создавая его при необходимости.
         """
-        key_path = os.path.join(key_path, current_user_id)
+        key_path = os.path.join(key_path, current_user_id, peer_id)
         db_key = os.path.join(key_path, config.FILES.DB_KEY)
+        
+        os.makedirs(key_path, exist_ok=True)
         if os.path.exists(db_key):
             with open(db_key, 'rb') as key_file:
                 return key_file.read()
+        
+        # Если существует в другом аакаунте, то просто копируем 
+        another_db_key = os.path.join(key_path, peer_id, current_user_id, config.FILES.DB_KEY)
+        if os.path.exists(another_db_key):
+            shutil.copy2(another_db_key, db_key)
+            with open(db_key, 'rb') as key_file:
+                return key_file.read()
+
         return Encrypter._create_database_encode_key(key_path)
 
     @staticmethod
