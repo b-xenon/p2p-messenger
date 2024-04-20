@@ -322,7 +322,7 @@ class Encrypter:
         # Если существует в другом аакаунте, то просто копируем 
         another_db_key = os.path.join(key_path, peer_id, current_user_id, config.FILES.DB_KEY)
         if os.path.exists(another_db_key):
-            shutil.copy2(another_db_key, db_key)
+            shutil.copyfile(another_db_key, db_key)
             with open(db_key, 'rb') as key_file:
                 return key_file.read()
 
