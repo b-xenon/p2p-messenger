@@ -13,7 +13,7 @@ import pyperclip
 from PIL import Image, ImageTk
 from enum import Enum
 
-from typing import Any, List, NamedTuple
+from typing import Any, Callable, List, NamedTuple, Optional
 
 import pytz
 from datetime import datetime
@@ -102,9 +102,326 @@ class _MessageBox(tk.Toplevel):
 
 class CustomMessageBox:
     @staticmethod
-    def show(master, title, message, message_type=CustomMessageType.ANY):
+    def show(master: Any, title: str, message: str, message_type: CustomMessageType = CustomMessageType.ANY):
         # Создаем и показываем конкретный тип сообщения
         _MessageBox(master, title, message, message_type).create_widgets()
+
+class ClientDecision(Enum):
+    NONE = -1
+    YES = 0
+    NO = 1
+
+class _YesNoDialog(tk.Toplevel):
+    def __init__(self, master: Any, title: str, message: str):
+        super().__init__(master)
+        self.title(title)
+        self._message = message
+        self._icon_path = config.FILES.ICONS.MAIN
+        self._image_path = config.FILES.ICONS.WARNING_L
+        
+        self.result: ClientDecision = ClientDecision.NONE
+
+    def create_widgets(self):
+        self.configure_window()
+
+        frame_text = ttk.Frame(self._frame_main)
+        frame_text.pack(expand=True, fill=tk.BOTH)
+
+        try:
+            image = ImageTk.PhotoImage(Image.open(self._image_path))
+            label_image = ttk.Label(frame_text, image=image) # type: ignore
+            label_image.image = image  # keep a reference! # type: ignore
+            label_image.pack(side=tk.LEFT, padx=10, pady=10)
+        except Exception:
+            pass
+
+        # Добавление виджетов внутрь ttk.Frame
+        label_text = ttk.Label(frame_text, text=self._message, wraplength=250)
+        label_text.pack(side=tk.LEFT, padx=10, pady=10)
+
+        frame_buttom = ttk.Frame(self._frame_main)
+        frame_buttom.pack()
+
+        yes_button = ttk.Button(frame_buttom, text="Да", width=10, command=lambda: self.yes_no_result(ClientDecision.YES))
+        yes_button.pack(side=tk.LEFT, padx=5, pady=5)
+        no_button = ttk.Button(frame_buttom, text="Нет", width=10, command=lambda: self.yes_no_result(ClientDecision.NO))
+        no_button.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        self.bind("<Return>", lambda event: self.yes_no_result(ClientDecision.YES))
+        self.bind("<Escape>", lambda event: self.yes_no_result(ClientDecision.NO))
+    
+    def configure_window(self):
+        self.resizable(False, False)
+        self.geometry('400x150')
+        self.resizable(False, False)
+
+        try:
+            self.iconbitmap(self._icon_path)
+        except tk.TclError:
+            pass
+
+        self._frame_main = ttk.Frame(self)
+        self._frame_main.pack(expand=True, fill='both')
+
+    def run(self) -> ClientDecision:
+        self.create_widgets()
+        # Захват ввода для модального окна
+        self.grab_set()
+        # Ограничение доступа к другим окнам до закрытия этого окна
+        self.wait_window()
+
+        return self.result
+
+    def yes_no_result(self, result: ClientDecision):
+        # Сохранение результата и закрытие диалога
+        self.result = result
+        self.destroy()
+
+class YesNoDialog:
+    @staticmethod
+    def ask_yes_no(master: Any, title: str, message: str) -> ClientDecision:
+        # Создаем и показываем конкретный тип сообщения
+        return _YesNoDialog(master, title, message).run()
+
+class PlaceholderVar(tk.StringVar):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.has_placeholder = False
+
+    def set(self, value):
+        if not self.has_placeholder:
+            super().set(value)
+
+    def get(self):
+        if self.has_placeholder:
+            return ""
+        return super().get()
+    
+    def change_status(self, *args) -> None:
+        self.has_placeholder = not self.has_placeholder
+
+class PlaceholderEntry(ttk.Entry):
+    """
+    Класс для создания поля ввода с текстом-подсказкой (placeholder).
+    Наследует от ttk.Entry.
+
+    Параметры:
+        master: родительский виджет, в который встраивается данный виджет.
+        placeholder: строка, которая будет показываться в поле ввода как подсказка.
+        color: цвет текста подсказки.
+    """
+    def __init__(self, master=None, placeholder="Введите текст...", color='grey', *args, **kwargs):
+        super().__init__(master, *args, **kwargs)
+        self.placeholder = placeholder
+        self.placeholder_color = color
+        self.has_placeholder = tk.BooleanVar(value=False)  # Флаг для отслеживания, отображается ли placeholder
+
+        textvariable = kwargs.get('textvariable', None)
+        if textvariable is not None:
+            if isinstance(textvariable, PlaceholderVar):
+                self.has_placeholder.trace_add('write', textvariable.change_status)
+
+        self.style = ttk.Style()
+        self.default_fg_color = self.style.lookup('TEntry', 'foreground')
+        self.default_bg_color = self.style.lookup('TEntry', 'background')
+
+        # Привязываем события фокусировки на элемент и потери фокуса к обработчикам.
+        self.bind("<FocusIn>", self._focus_in)
+        self.bind("<FocusOut>", self._focus_out)
+        self.bind("<<ThemeChanged>>", self._change_color)
+
+        # Проверяем, содержит ли textvariable уже какой-то текст, если он передан.
+        if 'textvariable' in kwargs and kwargs['textvariable'].get():
+            self.configure(foreground=self.default_fg_color)
+        else:
+            self.put_placeholder()
+
+    def put_placeholder(self):
+        """Вставляет текст-подсказку в поле ввода и устанавливает цвет шрифта для подсказки."""
+        self.delete(0, 'end')
+        self.insert(0, self.placeholder)
+        self.configure(foreground=self.placeholder_color)
+        self.has_placeholder.set(True)
+
+    def _focus_in(self, event):
+        """
+        Обработчик события получения фокуса полем ввода.
+        Очищает поле, если в нем находится только текст-подсказка.
+
+        Параметры:
+            event: объект события, который содержит информацию о событии.
+        """
+        if self.has_placeholder.get():
+            self.delete('0', 'end')
+            self.configure(foreground=self.default_fg_color)
+            self.has_placeholder.set(False)
+
+    def _focus_out(self, event):
+        """
+        Обработчик события потери фокуса полем ввода.
+        Вставляет текст-подсказку обратно, если поле осталось пустым.
+
+        Параметры:
+            event: объект события, который содержит информацию о событии.
+        """
+        if not self.get():  # Проверяем, пусто ли в поле.
+            self.put_placeholder()  # Вставляем текст-подсказку, если поле пусто.
+
+    def _change_color(self, *args):
+        """
+            Изменение цвета фона и текста виджетов в соответствии с темой.
+        """
+        if not self.has_placeholder:
+            self.default_fg_color = self.style.lookup('TEntry', 'foreground')
+            self.configure(foreground=self.default_fg_color)
+        
+            self.default_bg_color = self.style.lookup('TEntry', 'background')
+            self.configure(background=self.default_bg_color)
+
+class JustifiedCombobox(ttk.Combobox):
+    """
+    Настраиваемый виджет ttk.Combobox с динамической юстировкой элементов списка выбора.
+    
+    Параметры:
+        master (Tkinter.Widget): Родительский виджет.
+        **kwargs: Дополнительные параметры для настройки Combobox.
+
+    Атрибуты:
+        justify (str): Выравнивание элементов списка выбора.
+        _master (Tkinter.Widget): Родительский виджет.
+        _initial_bindtags (tuple): Исходные привязки к событиям Combobox.
+        _dummy_tag (str): Уникальный тег для Combobox.
+    """
+
+    def __init__(self, master, **kwargs):
+        """
+        Инициализирует JustifiedCombobox.
+        """
+        ttk.Combobox.__init__(self, master, **kwargs)
+        self.justify = 'center'
+        self._master = master
+
+    def _justify_popdown_list_text(self):
+        """
+        Юстирует текст в списке выбора.
+        """
+        self._initial_bindtags = self.bindtags()
+        _bindtags = list(self._initial_bindtags)
+        _index_of_class_tag = _bindtags.index(self.winfo_class())
+        # Этот фиктивный тег должен быть уникальным для каждого объекта и не должен быть равен str(object)
+        self._dummy_tag = '_' + str(self)
+        _bindtags.insert(_index_of_class_tag + 1, self._dummy_tag)
+        self.bindtags(tuple(_bindtags))
+        _events_that_produce_popdown = tuple(['<KeyPress-Down>',
+                                              '<ButtonPress-1>',
+                                              '<Shift-ButtonPress-1>',
+                                              '<Double-ButtonPress-1>',
+                                              '<Triple-ButtonPress-1>',
+                                              ])
+        for _event_name in _events_that_produce_popdown:
+            self.bind_class(self._dummy_tag, _event_name, self._initial_event_handle)
+
+    def _initial_event_handle(self, event):
+        """
+        Обрабатывает начальные события.
+        
+        Параметры:
+            event: Событие для обработки.
+        """
+        _instate = str(self['state'])
+        if _instate != 'disabled':
+            if event.keysym == 'Down':
+                self._justify()
+            else:
+                _ = self.tk.eval('{} identify element {} {}'.format(self, event.x, event.y))
+                __ = self.tk.eval('string match *textarea {}'.format(_))
+                _is_click_in_entry = bool(int(__))
+                if (_instate == 'readonly') or (not _is_click_in_entry):
+                    self._justify()
+
+    def _justify(self):
+        """
+        Юстирует список выбора.
+        
+        """
+        self.tk.eval('{}.popdown.f.l configure -justify {}'.format(self, self.justify))
+        self.bindtags(self._initial_bindtags)
+
+    def __setattr__(self, name, value):
+        """
+        Устанавливает атрибут и юстирует список выбора, если атрибут - 'justify'.
+        
+        Параметры:
+            name (str): Название атрибута для установки.
+            value: Значение, которое будет установлено для атрибута.
+        """
+        self.__dict__[name] = value
+        if name == 'justify':
+            self._justify_popdown_list_text()
+
+class Tooltip:
+    """
+    Создает всплывающую подсказку для виджета при наведении курсора мыши.
+    
+    Attributes:
+        widget (tk.Widget): Виджет, к которому привязана подсказка.
+        text (str): Текст всплывающей подсказки.
+        delay (int): Задержка в миллисекундах перед показом подсказки.
+        bg_color (str): Цвет фона подсказки.
+        font (tuple): Шрифт текста подсказки.
+    """
+    def __init__(self, widget: tk.Widget, text: str,
+                 delay: int = config.WIDGETS.TOOLTIP_SETTINGS.DELAY,
+                 font: tuple = config.WIDGETS.TOOLTIP_SETTINGS.TEXT_FONT) -> None:
+        self.master = widget
+        self.text = text
+        self.delay = delay
+        self.font = font
+        self.tip_window: Optional[tk.Toplevel] = None       # Окно всплывающей подсказки.
+        self.id: str = ''                                   # Идентификатор задержки перед показом подсказки.
+        self.master.bind("<Enter>", self.mouse_enter)
+        self.master.bind("<Leave>", self.mouse_leave)
+
+    def mouse_enter(self, event: Optional[tk.Event] = None) -> None:
+        """Обработка ивента наведения мыши на виджет."""
+        self.schedule()
+
+    def mouse_leave(self, event: Optional[tk.Event] = None) -> None:
+        """Обработка ивента отведения мыши от виджета."""
+        self.unschedule()
+        self.hide_tip()
+
+    def schedule(self) -> None:
+        """Планирует показ подсказки с задержкой."""
+        self.unschedule()
+        self.id = self.master.after(self.delay, self.show_tip)
+
+    def unschedule(self) -> None:
+        """Отменяет запланированное событие, если оно есть."""
+        id = self.id
+        self.id = ""
+        if id:
+            self.master.after_cancel(id)
+
+    def show_tip(self, event: Optional[tk.Event] = None) -> None:
+        """Отображает подсказку в вычисленной позиции."""
+        x, y, cx, cy = self.master.bbox("insert") # type: ignore
+        x += self.master.winfo_rootx() + 25
+        y += self.master.winfo_rooty() + 20
+        self.tip_window = tw = tk.Toplevel(self.master)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry("+%d+%d" % (x, y))
+
+        label = ttk.Label(tw, text=self.text, justify=tk.LEFT,
+                           relief=tk.SOLID, borderwidth=1, font=self.font)
+        label.pack(ipadx=1)
+
+    def hide_tip(self) -> None:
+        """Скрывает подсказку, если она отображается."""
+        tw = self.tip_window
+        self.tip_window = None
+        if tw:
+            tw.destroy()
 
 
 class LimitedText(ttk.Frame):
@@ -621,21 +938,21 @@ class DialogManager(ttk.Frame):
         self._notebook_dialogs.bind(_right_click, self._handle_right_click)
         self._notebook_dialogs.bind(_middle_click, self._handle_middle_click)
 
-    def add_right_click_handler(self, handler: Any) -> None:
+    def add_right_click_handler(self, handler: Callable) -> None:
         """
             Добавляем функцию-обработчик для события нажатия правой кнопкой мыши на вкладку.
         
         Args:
-            handler (Any): функция-обработчик
+            handler (Callable): функция-обработчик
         """
         self._right_click_handler = handler
 
-    def add_middle_click_handler(self, handler: Any) -> None:
+    def add_middle_click_handler(self, handler: Callable) -> None:
         """
             Добавляем функцию-обработчик для события нажатия центральной кнопкой мыши на вкладку.
         
         Args:
-            handler (Any): функция-обработчик
+            handler (Callable): функция-обработчик
         """
         self._middle_click_handler = handler
 
@@ -762,6 +1079,15 @@ class DialogManager(ttk.Frame):
                 del self._hidden_tabs[self._dialogs[dialog_id].tab_id]
 
             self._dialogs[dialog_id].dialog.activate()
+
+    def close_all(self) -> None:
+        """
+            Скрывает все диалоги из интерфейса и удаляет их данные из памяти.
+        """
+        for _, dialog_info in self._dialogs.items():
+            self._notebook_dialogs.hide(dialog_info.tab_id)
+        self._dialogs = {}
+        self._hidden_tabs = {}
 
     def size(self) -> int:
         """

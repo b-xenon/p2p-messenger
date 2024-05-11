@@ -2,6 +2,7 @@
 .conda
 stuff/log
 stuff/history.db
+stuff/accounts.db
 stuff/config.ini
 stuff/keys
 download

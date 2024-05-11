@@ -30,7 +30,7 @@ class DHTPeerProfile(BaseModel):
     rsa_public_key: 'RSA_KeyType'  # Публичный ключ RSA.
 
 class DHT_Client:
-    def __init__(self, listen_port: PortType, dht_ip: IPAddressType, dht_port: PortType) -> None:
+    def __init__(self, listen_port: PortType) -> None:
         """
             Инициализирует клиент DHT.
 
@@ -40,12 +40,24 @@ class DHT_Client:
             dht_port: Порт узла для начального подключения к сети DHT.
         """
         self._listen_port = listen_port
+        self._dht_ip: IPAddressType = ""
+        self._dht_port: PortType = 0
+
+        self.is_active = False
+
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._server = Server()
+        
+    def start(self, dht_ip: IPAddressType, dht_port: PortType):
+        """
+            Подключается к корневой DHT-node.
+        """
         self._dht_ip = dht_ip
         self._dht_port = dht_port
 
-        self._loop = asyncio.get_event_loop()
-        self._server = Server()
         self._loop.run_until_complete(self._init_server())
+        self.is_active = True
 
     async def _init_server(self):
         """
@@ -108,6 +120,39 @@ class DHT_Client:
             raise EmptyDHTDataError
         return data
     
+    def set_listen_port(self, port: PortType, make_reconnect: bool = True) -> None:
+        """
+            Устанавливает новое значение прослушивающего порта. 
+
+        Args:
+            port (PortType): Новое значение прослушивающего порта
+            make_reconnect (bool): Нужно ли выполнять переподключение, для обновления прослушивания.
+            Если выбрано False, то пользователь должен сам вызвать reconnect для изменения.
+            По умолчанию True. 
+        """
+        self._listen_port = port
+        if make_reconnect:
+            self.reconnect(self._dht_ip, self._dht_port)
+
+    def reconnect(self, new_ip: IPAddressType, new_port: PortType) -> None:
+        """
+            Отключается от текущего загрузочного узла и подключается к новому загрузочному узлу.
+
+        Args:
+            new_ip: Новый IP-адрес узла начальной загрузки.
+            new_port: Новый порт узла начальной загрузки.
+        """
+        self._loop.run_until_complete(self._reconnect(new_ip, new_port))
+
+    async def _reconnect(self, new_ip: str, new_port: int) -> None:
+        # Отключите существующий узел начальной загрузки
+        self._server.stop()
+        # Установите новый IP-адрес и порт
+        self._dht_ip = new_ip
+        self._dht_port = new_port
+        # Подключиться к новому узлу начальной загрузки
+        self._loop.run_until_complete(self._init_server())
+
     def stop(self):
         """
             Останавливает сервер и закрывает событийный цикл.
@@ -120,6 +165,8 @@ class DHT_Client:
             self._loop.close()
         except Exception:
             pass
+        finally:
+            self.is_active = False
 
 class KademliaServer:
     def __init__(self, port: PortType) -> None:

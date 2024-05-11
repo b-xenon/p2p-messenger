@@ -1,30 +1,31 @@
 import base64
 from dataclasses import dataclass
 from enum import Enum
+import hashlib
 import json
 from logging import Logger
 import os
 import queue
+import random
 import re
 import socket
+import string
 import threading
 import time
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Tuple, Union
 from pydantic import BaseModel, ValidationError
 import requests
 
-from config import config, IPAddressType, PortType, FilenameType
+from config import UserIdHashType, config, IPAddressType, PortType, FilenameType, UserIdType
 from dht import DHT_Client, DHTPeerProfile
 from libs.cryptography import B64_FormatData, EncryptedData, Encrypter, PEM_FormatData, RSA_KeyType
-from libs.database import DatabaseManager
+from libs.database import AccountDatabaseManager, DatabaseCreationError, DatabaseGetDataError, DatabaseSetDataError, HistoryDatabaseManager, KeyLoadingError
 from libs.message import *
-from libs.widgets import CustomMessageBox, CustomMessageType, DialogManager
-
-UserIdType = str
+from libs.structs import ClientInfo, DHTNodeHistory, KnownRSAPublicKeys
+from libs.widgets import ClientDecision, CustomMessageBox, CustomMessageType, DialogManager, YesNoDialog
 
 class UnavailableSessionIdError(Exception):
     """Исключение возникает при указании недопустимого идентификатора сеанса."""
-
     def __init__(self, message="Введен неверный идентификатор сеанса."):
         self.message = message
         super().__init__(self.message)
@@ -39,10 +40,11 @@ class NetworkCommands(Enum):
     RECV_DATA = "5"    # Получение данных
     SYNC_DATA = "6"    # Синхронизация данных
     EXISTS = "7"       # Сессия уже открыта
+    CONNECTING_TO_OURSELVES = "8" # Подключение к самому себе
 
 class AdditionalData(BaseModel):
     """ Дополнительные данные, связанные с сетевым сообщением. """
-    user_id: UserIdType = ''                # Идентификатор пользователя
+    user_id_hash: UserIdHashType = ''       # Идентификатор пользователя
     user_name: str = ''                     # Имя пользователя
     ecdh_public_key: 'PEM_FormatData' = ''  # Публичный ключ участника в формате PEM, для использования в ECDH
     resend_flag: bool = False               # Флаг для повторной отправки
@@ -65,11 +67,14 @@ class NetworkEventType(Enum):
     REQUEST_FILE = 5     # Событие запроса файла
     FILE_ACCEPTED = 6    # Событие подтверждения получения файла
     ALREADY_EXISTS = 7   # Событие о том, что сессия уже существует
+    CONNECTING_TO_OURSELVES = 8 # Подключение к самому себе
+    UNKNOWN_RSA_PUBLIC_KEY = 9 # Неизвестный публичный ключ RSA
+    FAILED_CONNECT = 10        # Не удалось подключиться
 
 @dataclass
 class NetworkEventData:
     """ Хранит данные, связанные с сетевыми событиями. """
-    user_id: UserIdType = ''
+    user_id_hash: UserIdHashType = ''
     user_name: str = ''
     address: Tuple[IPAddressType, PortType] = ('', -1)  # IP-адрес и порт
     session_id: int = -1                                # Идентификатор сессии
@@ -102,10 +107,11 @@ session_close_event: __SessionCloseEvent = __SessionCloseEvent()
 class UserSession:
     """ Управляет сетевой сессией пользователя, включая сетевые операции, шифрование и логирование. """
     
-    session_counter: int = 0  # Статический счетчик для отслеживания количества сессий
+    session_counter: int = 0  # Статический счетчик для отслеживания количества сессий 
 
     def __init__(self, connection_socket: socket.socket, remote_address: Tuple[IPAddressType, PortType],
-                 user_id: UserIdType, user_name: str, peer_rsa_public_key: RSA_KeyType, logger: Logger, event: NetworkEvent) -> None:
+                 user_id_hash: UserIdType, user_name: str, user_password: str, peer_rsa_public_key: RSA_KeyType,
+                 logger: Logger, event: NetworkEvent) -> None:
         """
         Инициализирует новую сессию пользователя.
 
@@ -119,9 +125,10 @@ class UserSession:
         """
         self._connection_socket: socket.socket = connection_socket
         self._remote_address: Tuple[IPAddressType, PortType] = remote_address
-        self._user_id: UserIdType = user_id
+        self._user_id_hash: UserIdHashType = user_id_hash
         self._user_name: str = user_name
-        self._peer_user_id: UserIdType = ''  # Идентификатор собеседника
+        self._user_password: str = user_password
+        self._peer_user_id_hash: UserIdHashType = ''  # Идентификатор собеседника
         self._peer_user_name: str = ''  # Имя собеседника
         self._peer_rsa_public_key: RSA_KeyType = peer_rsa_public_key  # Публичный ключ собеседника для проверки подписи
         self._logger: Logger = logger
@@ -129,10 +136,13 @@ class UserSession:
         self._last_ping_time: float = time.time()  # Время последнего пинга
         self._event: NetworkEvent = event
 
-        self._table_name: str = ''  # Имя таблицы для истории сообщений (если применимо)
+        # Переменная, отвечающая за решение пользователя
+        # Используется, когда необходимо установить какие-либо значения, которые пользователь выбирает в UI
+        # (допустим, нужно, чтобы он ответил Да/нет)
+        self._client_decision: ClientDecision = ClientDecision.NONE
 
-        self._crypto: Encrypter = Encrypter(keys_path=config.PATHS.KEYS, current_user_id=self._user_id)
-        self._database: DatabaseManager = DatabaseManager(user_id=self._user_id, logger=self._logger)
+        self._crypto: Encrypter = Encrypter(keys_path=config.PATHS.KEYS, user_id_hash=self._user_id_hash, user_password=user_password)
+        self._database: HistoryDatabaseManager = HistoryDatabaseManager(user_id_hash=self._user_id_hash, user_password=user_password, logger=self._logger)
 
         self._session_id: int = UserSession.session_counter
         UserSession.session_counter += 1
@@ -143,12 +153,23 @@ class UserSession:
 
         self._int_size_for_message_length: int = 4  # Размер целого числа для длины сообщения
 
-
         self._thread_client_handler = threading.Thread(target=self._handle_client, daemon=True)
         self._thread_client_handler.start()
 
     def get_id(self) -> int:
         return self._session_id
+
+    def set_client_decision(self, decision: ClientDecision) -> None:
+        """
+            Устанавливает значение поля _client_decision в одно из нескольких состояний:
+                - None - нулевое состояние
+                - Yes  - состояние согласия
+                - No   - состояние отказа
+        
+        Args:
+            decision (ClientDecision): Тип состояния. 
+        """
+        self._client_decision = decision
 
     def connect(self) -> int:
         """
@@ -165,20 +186,20 @@ class UserSession:
             self._connection_socket.connect(self._remote_address)
 
             # Кодирование начального сообщения в Base64 и его подпись
-            initial_message_b64: B64_FormatData = self._crypto.encode_to_b64(self._crypto.get_rsa_public_key())
+            initial_message_b64: B64_FormatData = Encrypter.encode_to_b64(self._crypto.get_rsa_public_key())
             encrypted_data: EncryptedData = EncryptedData(
                 data_b64=initial_message_b64,
                 iv_b64=''
             )
-            encrypted_data_b64: B64_FormatData = self._crypto.encode_to_b64(encrypted_data.model_dump_json())
+            encrypted_data_b64: B64_FormatData = Encrypter.encode_to_b64(encrypted_data.model_dump_json())
             message_signature_b64: B64_FormatData = self._crypto.sign_message(encrypted_data_b64)
 
             additional_info: AdditionalData = AdditionalData(
-                user_id=self._user_id,
+                user_id_hash=self._user_id_hash,
                 user_name=self._user_name,
                 ecdh_public_key=self._crypto.get_public_key()  # Получение публичного ключа для обмена
             )
-            additional_info_b64: B64_FormatData = self._crypto.encode_to_b64(additional_info.model_dump_json())
+            additional_info_b64: B64_FormatData = Encrypter.encode_to_b64(additional_info.model_dump_json())
             additional_info_signature_b64: B64_FormatData = self._crypto.sign_message(additional_info_b64)
 
 
@@ -211,7 +232,7 @@ class UserSession:
         # Сериализация данных сообщения в JSON
         message_json = message.model_dump_json()
         encrypted_message: EncryptedData = self._crypto.encrypt(message_json)
-        encrypted_message_b64: B64_FormatData = self._crypto.encode_to_b64(encrypted_message.model_dump_json())
+        encrypted_message_b64: B64_FormatData = Encrypter.encode_to_b64(encrypted_message.model_dump_json())
         message_signature_b64: B64_FormatData = self._crypto.sign_message(encrypted_message_b64)
 
         # Сборка данных для отправки
@@ -230,25 +251,31 @@ class UserSession:
         if message.type == MessageType.Text and hasattr(message.message, 'id'):
             self._outbound_message_buffer[message.message.id] = message.message # type: ignore
     
-    def close(self) -> None:
+    def close(self, silent_mode: bool = False) -> None:
         """
         Закрывает сессию, отключая соединение и регистрируя событие отключения.
 
         Закрывает соединение с сокетом и сообщает об отключении с помощью сетевого события.
         Сохраняет неотправленные сообщения в базу данных и завершает поток обработки клиента.
+
+        Args:
+            silent_mode (bool): Если указан в True, не отправляем ивенты для UI.
         """
         if self._is_active:
             self._is_active = False
             self._connection_socket.close()  # Закрытие сокета соединения
 
             # Если есть информация о собеседнике, регистрируем событие отключения
-            if self._peer_user_id:
+            if self._peer_user_id_hash:
                 self._send_event(NetworkEventType.DISCONNECT)
                 # Сохранение исходящих сообщений из временного буфера в базу данных
                 self._database.save_data(list(self._outbound_message_buffer.values()), is_outbound_message_buffer=True)
 
                 global active_users 
-                del active_users[active_users.index(self._peer_user_id)]
+                del active_users[active_users.index(self._peer_user_id_hash)]
+            else:
+                if not silent_mode:
+                    self._send_event(NetworkEventType.FAILED_CONNECT)
 
             # Ожидание завершения потока обработки клиента, если он был запущен
             try:
@@ -261,7 +288,7 @@ class UserSession:
             session_close_event.set()
 
             # Логирование завершения сессии
-            self._logger.debug(f"Сессия для клиента [{self._remote_address}][{self._peer_user_id} "
+            self._logger.debug(f"Сессия для клиента [{self._remote_address}][{self._peer_user_id_hash} "
                                f"| {self._peer_user_name}] завершена.")
 
     def _send_network_data(self, data: NetworkData) -> None:
@@ -283,7 +310,7 @@ class UserSession:
         
         # Отправка размера и данных через сокет
         self._connection_socket.sendall(data_length + serialized_data)
-        self._logger.debug(f"Отправил {data.command_type.name} сообщение клиенту [{self._remote_address}][{self._peer_user_id} "
+        self._logger.debug(f"Отправил {data.command_type.name} сообщение клиенту [{self._remote_address}][{self._peer_user_id_hash} "
                            f"| {self._peer_user_name}] размером [{int.from_bytes(data_length, byteorder='big')}/{len(serialized_data)}].")
 
 
@@ -315,7 +342,7 @@ class UserSession:
                     continue
 
                 self._logger.debug(f"Проверка подписи для клиента [{self._remote_address}]"
-                                   f"[{self._peer_user_id} | {self._peer_user_name}] прошла успешно.")
+                                   f"[{self._peer_user_id_hash} | {self._peer_user_name}] прошла успешно.")
 
                 match received_data.command_type:
                     case NetworkCommands.INIT:
@@ -334,20 +361,22 @@ class UserSession:
                         self._handle_sync(received_data)
                     case NetworkCommands.EXISTS:
                         self._handle_exist(received_data)
+                    case NetworkCommands.CONNECTING_TO_OURSELVES:
+                        self._handle_connecting_to_ourselves()
 
 
             except socket.timeout as e:
                 self._logger.debug(f"Клиент не отвечает, закрываю соединение с [{self._remote_address}]"
-                                   f"[{self._peer_user_id} | {self._peer_user_name}].")
+                                   f"[{self._peer_user_id_hash} | {self._peer_user_name}].")
                 self.close()
 
             except (json.decoder.JSONDecodeError, ValidationError) as e:
                 self._logger.error(f'Ошибка при распознании данных. [{e}]')
                 self._clear_socket_buffer()
-                self._logger.debug(f"Отчищаю буфер сокета для [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}].")
+                self._logger.debug(f"Отчищаю буфер сокета для [{self._remote_address}][{self._peer_user_id_hash} | {self._peer_user_name}].")
 
             except BrokenPipeError:
-                self._logger.debug(f'Клиент [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}] завершил общение. Завершаю сессию.')
+                self._logger.debug(f'Клиент [{self._remote_address}][{self._peer_user_id_hash} | {self._peer_user_name}] завершил общение. Завершаю сессию.')
                 self.close()
 
             except (OSError, ConnectionRefusedError):
@@ -425,13 +454,124 @@ class UserSession:
         self._logger.debug(f"Получил INIT сообщение от клиента [{self._remote_address}].")
 
         # Проверяем, общаемся ли мы уже с человеком с данным id
-        if received_data.additional.user_id in active_users:
+        if received_data.additional.user_id_hash in active_users:
             self._send_exist()
-            self.close()
+            self.close(silent_mode=True)
+            return
+
+        # Проверяем, общаемся ли мы сами с собой
+        if received_data.additional.user_id_hash == self._user_id_hash:
+            self._send_connecting_to_ourselves()
+            self.close(silent_mode=True)
+            return
+
+        self._rsa_public_key_processing(received_data)
 
         self._update_peer_info(received_data)
         self._load_and_send_dialog_history()
         self._send_connetion_event()
+
+    def _rsa_public_key_processing(self, received_data: NetworkData) -> None:
+        """
+            Обработка публичного RSA ключа собеседника.        
+
+        Args:
+            received_data (NetworkData): Полученные данные для Init
+        """
+        ret_val = self._check_is_known_public_rsa_key(received_data.additional.user_id_hash)
+        if ret_val == 1:
+            return
+        elif ret_val == -1:
+            self._add_new_peer_rsa_key_to_database(received_data.additional.user_id_hash, self._peer_rsa_public_key)
+            return
+        
+        self._logger.debug(f'Отправляю ивент на согласие пользователя на начало диалога с [{received_data.additional.user_id_hash}].')
+        self._send_event(
+            NetworkEventType.UNKNOWN_RSA_PUBLIC_KEY,
+            user_id_hash=received_data.additional.user_id_hash,
+            user_name=received_data.additional.user_name,
+            session_id=self._session_id
+        )
+
+        self._wait()
+
+        # Если клиент решил не начинать общение с незнакомым собеседником, то просто выходим
+        if self._client_decision != ClientDecision.YES:
+            self._logger.debug(f'Пользователя решил не начинать диалог с [{received_data.additional.user_id_hash}].')
+            self.close(silent_mode=True)
+            return
+        
+        # Иначе сохраняем его
+        self._add_new_peer_rsa_key_to_database(received_data.additional.user_id_hash, self._peer_rsa_public_key)
+
+    def _check_is_known_public_rsa_key(self, peer_id_hash: UserIdHashType) -> int:
+        """
+            Проверяет, есть ли публичный ключ собеседника в нашей БД.
+        
+        Args:
+            peer_id_hash (UserIdHashType): Id собеседника.
+
+        Returns:
+            int: Возвращаемые значения:
+                    ->  1 - есть в БД
+                    ->  0 - нет в БД, но для данных id есть другие ключи
+                    -> -1 - нет в БД и для этих ключей нет других значений
+        """
+        try:
+            self._logger.debug(f'Проверяю ключ собеседника [{peer_id_hash}] на наличие в базе данных.')
+            known_rsa_pub_keys = KnownRSAPublicKeys.parse_raw(AccountDatabaseManager.fetch_known_rsa_pub_keys(self._user_id_hash, peer_id_hash))
+            if self._peer_rsa_public_key in known_rsa_pub_keys.keys:
+                self._logger.debug(f'Ключ собеседника присутствует в базе данных.')
+                return 1
+            self._logger.debug(f'Данный ключ отсутствует в базе данных для собеседника [{peer_id_hash}].')
+            return 0
+        except KeyLoadingError:
+            self._logger.debug(f'Это первый диалог с собеседником [{peer_id_hash}].')
+            return -1
+
+    def _wait(self, seconds: int = 10):
+        """
+            Ожидает заданное время, пока оно не истечет, либо не измениться параматр _client_decision.
+
+        Args:
+            seconds (int, optional): Время ожидания в секундах. По умолчанию 10.
+        """
+        start = time.time()
+        end = time.time()
+
+        self._logger.debug(f'Ожидаю решения пользователя [{seconds}] секунд.')
+        while self._is_active and self._client_decision == ClientDecision.NONE and (start - end) < seconds:
+            end = time.time()
+            time.sleep(0.1)
+        
+        self._logger.debug(f'Ожидание завершено. Пользователь изменил состояние на [{self._client_decision.name}].')
+
+    def _add_new_peer_rsa_key_to_database(self, peer_id_hash: UserIdHashType, peer_rsa_pub_key: RSA_KeyType) -> None:
+        """
+            Добавляю новый публичный RSA ключ в БД.
+
+        Args:
+            peer_id_hash (UserIdHashType): Id собеседника.
+            peer_rsa_pub_key (RSA_KeyType): Ключ собеседника.
+        """
+        try:
+            known_rsa_pub_keys = KnownRSAPublicKeys.parse_raw(AccountDatabaseManager.fetch_known_rsa_pub_keys(self._user_id_hash, peer_id_hash))
+            known_rsa_pub_keys.keys.add(peer_rsa_pub_key)
+            
+            new_known_rsa_pub_keys = Encrypter.encrypt_with_aes(
+                self._user_password.encode(),
+                known_rsa_pub_keys.model_dump_json()
+            )
+            self._logger.debug('Добавляю новый публичный RSA ключ в БД к уже имеющимся.')
+            AccountDatabaseManager.update_known_rsa_pub_keys(self._user_id_hash, peer_id_hash, new_known_rsa_pub_keys)
+        
+        except KeyLoadingError:
+            new_known_rsa_pub_keys = Encrypter.encrypt_with_aes(
+                self._user_password.encode(),
+                KnownRSAPublicKeys(keys=set([peer_rsa_pub_key])).model_dump_json()
+            )
+            self._logger.debug('Добавляю новый публичный RSA ключ в БД.')
+            AccountDatabaseManager.add_known_rsa_pub_keys(self._user_id_hash, peer_id_hash, new_known_rsa_pub_keys)
 
     def _update_peer_info(self, received_data: NetworkData) -> None:
         """
@@ -440,13 +580,13 @@ class UserSession:
         Args:
             received_data (NetworkData): Полученные данные от собеседника
         """
-        self._peer_user_id = received_data.additional.user_id
+        self._peer_user_id_hash = received_data.additional.user_id_hash
         self._peer_user_name = received_data.additional.user_name
         self._crypto.calculate_dh_secret(received_data.additional.ecdh_public_key)
 
-        active_users.append(self._peer_user_id)
+        active_users.append(self._peer_user_id_hash)
 
-        self._database.set_table_name(self._user_id, self._peer_user_id)
+        self._database.set_table_name(self._user_id_hash, self._peer_user_id_hash)
 
     def _load_and_send_dialog_history(self) -> None:
         """
@@ -478,15 +618,15 @@ class UserSession:
         # Сериализация данных сообщения в JSON
         message_json: str = json.dumps(self._dialog_history_ids)
         encrypted_message: EncryptedData = self._crypto.encrypt(message_json)
-        encrypted_message_b64: B64_FormatData = self._crypto.encode_to_b64(encrypted_message.model_dump_json())
+        encrypted_message_b64: B64_FormatData = Encrypter.encode_to_b64(encrypted_message.model_dump_json())
         message_signature_b64: B64_FormatData = self._crypto.sign_message(encrypted_message_b64)
 
         additional_info: AdditionalData = AdditionalData(
-            user_id=self._user_id,
+            user_id_hash=self._user_id_hash,
             user_name=self._user_name,
             ecdh_public_key=self._crypto.get_public_key()  # Получение публичного ключа для обмена
         )
-        additional_info_b64: B64_FormatData = self._crypto.encode_to_b64(additional_info.model_dump_json())
+        additional_info_b64: B64_FormatData = Encrypter.encode_to_b64(additional_info.model_dump_json())
         additional_info_signature_b64: B64_FormatData = self._crypto.sign_message(additional_info_b64)
 
         # Сборка данных для отправки
@@ -503,12 +643,16 @@ class UserSession:
         """
             Отправка ивента.
         """
+        # Использование значений из kwargs, если они предоставлены, иначе использовать атрибуты класса
+        user_id_hash = kwargs.get('user_id_hash', self._peer_user_id_hash)
+        user_name = kwargs.get('user_name', self._peer_user_name)
+
         # Формирование и отправка сообщения
         event_message = NetworkEventMessage(
             event_type=event_type,
             event_data=NetworkEventData(
-                user_id=self._peer_user_id,
-                user_name=self._peer_user_name,
+                user_id_hash=user_id_hash,
+                user_name=user_name,
                 address=self._remote_address,
                 **kwargs
             )
@@ -544,7 +688,9 @@ class UserSession:
             received_data (NetworkData): Полученные данные для Ack
         """
         self._update_ping_time()
-        self._logger.debug(f"Получил ACK сообщение от клиента [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}].")
+        self._logger.debug(f"Получил ACK сообщение от клиента [{self._remote_address}][{self._peer_user_id_hash} | {self._peer_user_name}].")
+
+        self._add_new_peer_rsa_key_to_database(received_data.additional.user_id_hash, self._peer_rsa_public_key)
 
         self._update_peer_info(received_data)
         self._load_dialog_history()
@@ -568,7 +714,7 @@ class UserSession:
                 self._last_ping_time = time.time()      # Обновляем время последнего пинга
             except OSError:
                 self._logger.debug(f"Не удалось отправить PING клиенту [{self._remote_address}]"
-                                   f"[{self._peer_user_id} | {self._peer_user_name}].")
+                                   f"[{self._peer_user_id_hash} | {self._peer_user_name}].")
 
     def _handle_ping(self) -> None:
         """
@@ -576,7 +722,7 @@ class UserSession:
         """
         self._update_ping_time()
         self._logger.debug(f"Получил PING сообщение от клиента [{self._remote_address}]"
-                                   f"[{self._peer_user_id} | {self._peer_user_name}].")
+                                   f"[{self._peer_user_id_hash} | {self._peer_user_name}].")
         self._send_ping_or_pong(NetworkCommands.PONG)
         
     def _send_ping_or_pong(self, message_type: NetworkCommands) -> None:
@@ -586,7 +732,7 @@ class UserSession:
             message_type (NetworkCommands): Тип сообщения (Ping или Pong)
         """
         encrypted_message: EncryptedData = self._crypto.encrypt(message_type.name)
-        encrypted_message_b64: B64_FormatData = self._crypto.encode_to_b64(encrypted_message.model_dump_json())
+        encrypted_message_b64: B64_FormatData = Encrypter.encode_to_b64(encrypted_message.model_dump_json())
         message_signature_b64: B64_FormatData = self._crypto.sign_message(encrypted_message_b64)
 
         # Сборка данных для отправки
@@ -604,7 +750,7 @@ class UserSession:
         """
         self._update_ping_time()
         self._logger.debug(f"Получил PONG сообщение от клиента [{self._remote_address}]"
-                                   f"[{self._peer_user_id} | {self._peer_user_name}].")
+                                   f"[{self._peer_user_id_hash} | {self._peer_user_name}].")
 
     def _handle_send(self, received_data: NetworkData) -> None:
         """
@@ -614,7 +760,7 @@ class UserSession:
             received_data (NetworkData): Полученные данные для Send
         """
         self._update_ping_time()
-        self._logger.debug(f"Получил SEND сообщение от клиента [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}].")
+        self._logger.debug(f"Получил SEND сообщение от клиента [{self._remote_address}][{self._peer_user_id_hash} | {self._peer_user_name}].")
         
         decrypted_data: MessageData = MessageData.parse_raw(self._crypto.decrypt(received_data.encrypted_data))
         
@@ -682,7 +828,7 @@ class UserSession:
             resend_flag (bool): Флаг повторной отправки.
         """
         encrypted_data: EncryptedData = self._crypto.encrypt(message.model_dump_json())
-        encrypted_data_b64: B64_FormatData = self._crypto.encode_to_b64(encrypted_data.model_dump_json())
+        encrypted_data_b64: B64_FormatData = Encrypter.encode_to_b64(encrypted_data.model_dump_json())
         message_sinature_b64: B64_FormatData = self._crypto.sign_message(encrypted_data_b64)
 
         data_to_send: NetworkData = NetworkData(
@@ -723,7 +869,7 @@ class UserSession:
             received_data: Полученные данные для Recv
         """
         self._update_ping_time()
-        self._logger.debug(f"Получил RECV сообщение от клиента [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}].")
+        self._logger.debug(f"Получил RECV сообщение от клиента [{self._remote_address}][{self._peer_user_id_hash} | {self._peer_user_name}].")
         
         decrypted_data: MessageData = MessageData.parse_raw(self._crypto.decrypt(received_data.encrypted_data))
         
@@ -764,15 +910,15 @@ class UserSession:
             received_data (NetworkData): Полученные данные для синхронизации.
         """
         self._update_ping_time()
-        self._logger.debug(f"Получил SYNC сообщение от клиента [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}].")
+        self._logger.debug(f"Получил SYNC сообщение от клиента [{self._remote_address}][{self._peer_user_id_hash} | {self._peer_user_name}].")
         
         decrypted_data: List[MessageIdType] = json.loads(self._crypto.decrypt(received_data.encrypted_data))
 
         if not decrypted_data:
-            self._logger.debug(f"Пришел пустой запрос SYNC от клиента [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}].")
+            self._logger.debug(f"Пришел пустой запрос SYNC от клиента [{self._remote_address}][{self._peer_user_id_hash} | {self._peer_user_name}].")
             return
                 
-        self._logger.debug(f"Начинаю отправлять сообщения клиенту [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}]"
+        self._logger.debug(f"Начинаю отправлять сообщения клиенту [{self._remote_address}][{self._peer_user_id_hash} | {self._peer_user_name}]"
                            f". Всего нужно отправить [{len(decrypted_data)}].")
         
         # Переотправляем N месседжей из истории
@@ -780,7 +926,7 @@ class UserSession:
             if message.id in decrypted_data:
                 self.send(MessageData(type=MessageType.Text, message=message), is_resended=True)
 
-        self._logger.debug(f"Все [{len(decrypted_data)}] сообщения(-ий) клиенту [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}] были отправлены.")
+        self._logger.debug(f"Все [{len(decrypted_data)}] сообщения(-ий) клиенту [{self._remote_address}][{self._peer_user_id_hash} | {self._peer_user_name}] были отправлены.")
 
     def _send_sync(self, data: str) -> None:
         """
@@ -790,7 +936,7 @@ class UserSession:
             data (str): Строка данных для отправки.
         """
         encrypted_data: EncryptedData = self._crypto.encrypt(data)
-        encrypted_data_b64: B64_FormatData = self._crypto.encode_to_b64(encrypted_data.model_dump_json())
+        encrypted_data_b64: B64_FormatData = Encrypter.encode_to_b64(encrypted_data.model_dump_json())
         message_sinature_b64: B64_FormatData = self._crypto.sign_message(encrypted_data_b64)
 
         data_to_send: NetworkData = NetworkData(
@@ -813,20 +959,20 @@ class UserSession:
         """
         # Проверяем, что сообщение пришло именно от нашего собеседника
         encrypted_data: EncryptedData = data.encrypted_data
-        encrypted_data_b64: B64_FormatData = self._crypto.encode_to_b64(encrypted_data.model_dump_json())
+        encrypted_data_b64: B64_FormatData = Encrypter.encode_to_b64(encrypted_data.model_dump_json())
 
         if not self._crypto.verify_signature(self._peer_rsa_public_key, encrypted_data_b64, data.signature):
             self._logger.warning(f"Пришло поддельное сообщение от имени клиента [{self._remote_address}]"
-                                    f"[{data.additional.user_id} | {data.additional.user_name}]!")
+                                    f"[{data.additional.user_id_hash} | {data.additional.user_name}]!")
             return False
 
         if data.signature_additional:
             additional_info: AdditionalData = data.additional
-            additional_info_b64: B64_FormatData = self._crypto.encode_to_b64(additional_info.model_dump_json())
+            additional_info_b64: B64_FormatData = Encrypter.encode_to_b64(additional_info.model_dump_json())
 
             if not self._crypto.verify_signature(self._peer_rsa_public_key, additional_info_b64, data.signature_additional):
                 self._logger.warning(f"Пришло поддельное сообщение от имени клиента [{self._remote_address}]"
-                                    f"[{data.additional.user_id} | {data.additional.user_name}]!")
+                                    f"[{data.additional.user_id_hash} | {data.additional.user_name}]!")
                 return False
         return True
 
@@ -877,7 +1023,7 @@ class UserSession:
             missing_peer_messages = [mid for mid in peer_message_ids if mid not in our_message_ids]
 
             if missing_peer_messages:
-                self._logger.debug(f"Запрашиваю отсутствующие сообщения у [{self._remote_address}][{self._peer_user_id} | {self._peer_user_name}].")
+                self._logger.debug(f"Запрашиваю отсутствующие сообщения у [{self._remote_address}][{self._peer_user_id_hash} | {self._peer_user_name}].")
                 # Возвращаем префиксы, обозначающие, чьи это сообщения (m-наши, o-его)
                 missing_peer_messages = [self._change_perception_for_message_id(mid) for mid in missing_peer_messages]
                 self._send_sync(json.dumps(missing_peer_messages))
@@ -913,17 +1059,11 @@ class UserSession:
         Args:
             received_data (NetworkData): Полученные данные для Exist
         """
-        # Формирование и отправка сообщения
-        event_message = NetworkEventMessage(
-            event_type=NetworkEventType.ALREADY_EXISTS,
-            event_data=NetworkEventData(
-                user_id=received_data.additional.user_id,
-                user_name=received_data.additional.user_name,
-                address=self._remote_address
-            )
+        self._send_event(
+            NetworkEventType.ALREADY_EXISTS,
+            user_id_hash=received_data.additional.user_id_hash,
+            user_name=received_data.additional.user_name
         )
-        self._event.messages.put(event_message)
-        self._event.set()
         self.close()
 
     def _send_exist(self) -> None:
@@ -936,14 +1076,14 @@ class UserSession:
                 data_b64=exist_message_b64,
                 iv_b64=''
         )
-        encrypted_data_b64: B64_FormatData = self._crypto.encode_to_b64(encrypted_data.model_dump_json())
+        encrypted_data_b64: B64_FormatData = Encrypter.encode_to_b64(encrypted_data.model_dump_json())
         message_signature_b64: B64_FormatData = self._crypto.sign_message(encrypted_data_b64)
 
         additional_info: AdditionalData = AdditionalData(
-            user_id=self._user_id,
+            user_id_hash=self._user_id_hash,
             user_name=self._user_name
         )
-        additional_info_b64: B64_FormatData = self._crypto.encode_to_b64(additional_info.model_dump_json())
+        additional_info_b64: B64_FormatData = Encrypter.encode_to_b64(additional_info.model_dump_json())
         additional_info_signature_b64: B64_FormatData = self._crypto.sign_message(additional_info_b64)
 
         # Сборка данных для отправки
@@ -956,45 +1096,80 @@ class UserSession:
         )
         self._send_network_data(data_to_send)
 
+    def _handle_connecting_to_ourselves(self) -> None:
+        """
+            Обработка сообщений CONNECTING_TO_OURSELVES.
+        """
+        # Формирование и отправка сообщения
+        self._send_event(NetworkEventType.CONNECTING_TO_OURSELVES)
+        self.close()
+
+    def _send_connecting_to_ourselves(self) -> None:
+            """
+                Отправляет сообщение CONNECTING_TO_OURSELVES.
+            """
+            # Кодирование начального сообщения в Base64 и его подпись
+            message_b64: B64_FormatData = self._crypto.encrypt_with_rsa('Connection with ourselves!', self._peer_rsa_public_key)
+            encrypted_data: EncryptedData = EncryptedData(
+                    data_b64=message_b64,
+                    iv_b64=''
+            )
+            encrypted_data_b64: B64_FormatData = Encrypter.encode_to_b64(encrypted_data.model_dump_json())
+            message_signature_b64: B64_FormatData = self._crypto.sign_message(encrypted_data_b64)
+
+            additional_info: AdditionalData = AdditionalData()
+            additional_info_b64: B64_FormatData = Encrypter.encode_to_b64(additional_info.model_dump_json())
+            additional_info_signature_b64: B64_FormatData = self._crypto.sign_message(additional_info_b64)
+
+            # Сборка данных для отправки
+            data_to_send = NetworkData(
+                command_type=NetworkCommands.CONNECTING_TO_OURSELVES,
+                encrypted_data=encrypted_data,
+                signature=message_signature_b64,
+                additional=additional_info,
+                signature_additional=additional_info_signature_b64
+            )
+            self._send_network_data(data_to_send)
+
 class ClientManager:
     def __init__(self, logger: Logger, port: PortType = config.NETWORK.CLIENT_COMMUNICATION_PORT) -> None:
         self._logger: Logger = logger
         self._is_active: bool = True
+        self._listener_socket = None
         self._listen_communication_port: PortType = port
 
+        self.dht = DHT_Client(listen_port=config.NETWORK.DHT_CLEINT_PORT)
         self.event: NetworkEvent = NetworkEvent()
-
-        self._user_id: UserIdType = ''
-        self._user_name: str = ''
-        self._use_local_ip: bool = False
-
-        self.is_dht_active = False
+        self._client_info: ClientInfo = ClientInfo()
 
         # Список активных сессий
         self._sessions: Dict[int, UserSession] = {}
 
-        self._setup_listener()
-        threading.Thread(target=self._connect_to_dht, daemon=True).start()
+        self.setup_listener(port)
         threading.Thread(target=self._delete_closed_session, daemon=True).start()
 
-    def _setup_listener(self) -> None:
+    def setup_listener(self, port: PortType = config.NETWORK.CLIENT_COMMUNICATION_PORT) -> None:
         """
             Настройка и запуск прослушивающего сокета.
         """
+        if self._listener_socket is not None:
+            self._listener_socket.close()
+
         # Создаёт новый сокет с использованием интернет-протокола IPv4 (socket.AF_INET) 
         # и TCP (socket.SOCK_STREAM) в качестве транспортного протокола. 
         self._listener_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
 
         # Привязывает сокет к IP-адресу и порту. 
         # Пустая строка '' в качестве IP-адреса означает, что сокет будет доступен для всех интерфейсов устройства. 
-        self._listener_socket.bind(('', self._listen_communication_port))
+        self._listener_socket.bind(('', port))
 
         # 1 указывает максимальное количество необработанных входящих соединений (размер очереди соединений).
         #  Если к серверу попытаются подключиться больше клиентов одновременно, чем указано в этом параметре,
         # дополнительные попытки подключения будут отклонены или оставлены в ожидании, пока не освободится место в очереди.
         self._listener_socket.listen(1)
-        self._logger.debug(f"Начинаю прослушивать порт [{self._listen_communication_port}].")
+        self._logger.debug(f"Начинаю прослушивать порт [{port}].")
 
+        self._listen_communication_port: PortType = port
         # Запускаем поток на обработку подключений
         threading.Thread(target=self._accept_connection, daemon=True).start()
 
@@ -1002,6 +1177,9 @@ class ClientManager:
         """
             Обработка входящих подключений.
         """
+        if self._listener_socket is None:
+            return
+
         self._logger.debug(f"Ожидаю подключения на порт [{self._listen_communication_port}].")
         while self._is_active:
             try:
@@ -1010,8 +1188,9 @@ class ClientManager:
                 session = UserSession(
                     connection_socket=client_socket,
                     remote_address=addr,
-                    user_id=self._user_id,
-                    user_name=self._user_name,
+                    user_id_hash=self._client_info.user_id,
+                    user_name=self._client_info.user_name,
+                    user_password=self._client_info.user_password,
                     peer_rsa_public_key='',
                     logger=self._logger,
                     event=self.event
@@ -1020,6 +1199,7 @@ class ClientManager:
 
             except OSError as e:
                 self._logger.debug(f'Завершаю прослушивание порта [{self._listen_communication_port}].')
+                return
 
     def _delete_closed_session(self) -> None:
         """
@@ -1039,18 +1219,6 @@ class ClientManager:
                 if event_data in self._sessions:
                     del self._sessions[event_data]
 
-    def _connect_to_dht(self):
-        """
-            Подключаемся к DHT.
-        """
-        self._logger.debug('Подключаюсь к DHT...')
-        self.dht = DHT_Client(
-            listen_port=config.NETWORK.DHT.PORT - 2,
-            dht_ip=config.NETWORK.DHT.IP,
-            dht_port=config.NETWORK.DHT.PORT
-        )
-        self.is_dht_active = True
-
     def connect(self, peer_info: DHTPeerProfile) -> int:
         """
             Создает новую сессию для взаимодействия с пиром.
@@ -1059,8 +1227,9 @@ class ClientManager:
         session = UserSession(
             connection_socket=socket.socket(socket.AF_INET, socket.SOCK_STREAM),
             remote_address=(peer_info.avaliable_ip, peer_info.avaliable_port),
-            user_id=self._user_id,
-            user_name=self._user_name,
+            user_id_hash=self._client_info.user_id,
+            user_name=self._client_info.user_name,
+            user_password=self._client_info.user_password,
             peer_rsa_public_key=peer_info.rsa_public_key,
             logger=self._logger,
             event=self.event
@@ -1068,13 +1237,24 @@ class ClientManager:
         self._sessions[session.get_id()] = session
         return session.connect()
 
+    def close_all_sessions(self) -> None:
+        """
+            Закрывает все активные соединения.
+        """
+        self._logger.debug("Закрываю все сессии...")
+        # Отправить сообщения всем сессиям о закрытии
+        for session in list(self._sessions.values()):
+            session.close()
+        self._logger.debug("Все сессии завершены.")
+
     def close(self) -> None:
         """
             Закрывает все активные сессии и прослушивающий сокет.
         """
         self._logger.debug(f"Закрываю прослушивающий сокет нашего клиента на порту [{self._listen_communication_port}].")
         self._is_active = False
-        self._listener_socket.close()
+        if self._listener_socket is not None:
+            self._listener_socket.close()
 
         self._logger.debug("Закрываю все сессии...")
         # Отправить сообщения всем сессиям о закрытии
@@ -1111,17 +1291,36 @@ class ClientManager:
             raise UnavailableSessionIdError('Указанный идентификатор сеанса не существует.')
         return self._sessions[session_id]
     
-    def set_client_info(self, user_id: UserIdType, user_name: str, use_local_ip: bool):
-        """Устанавливает значения, введенные пользователем."""
-        self._user_id = user_id
-        self._user_name = user_name
-        self._use_local_ip = use_local_ip
+    def set_client_info(self, client_info: ClientInfo) -> None:
+        """
+            Устанавливает значения, введенные пользователем.
+        Args:
+            client_info (ClientInfo): Клиентская информация.
+        """
+        Encrypter.create_rsa_keys(config.PATHS.KEYS, client_info.user_id_hash, client_info.user_password)
+        
+        if self._client_info.dht_node_ip != client_info.dht_node_ip or \
+            self._client_info.dht_node_port != client_info.dht_node_port or \
+                self._client_info.dht_client_port != client_info.dht_client_port:
+            self._logger.debug(f'Измению параметры DHT с ip [{self._client_info.dht_node_ip}],'
+                               f' порт [{self._client_info.dht_node_port}], порт клиента [{self._client_info.dht_client_port}] на'
+                               f'ip [{client_info.dht_node_ip}],'
+                               f' порт [{client_info.dht_node_port}], порт клиента [{client_info.dht_client_port}].'
+            )
+            self._logger.debug(f'Статус DHT [{self.dht.is_active}].')
+            self.dht.set_listen_port(client_info.dht_client_port, make_reconnect=False)
+            self.dht.reconnect(client_info.dht_node_ip, client_info.dht_node_port) if self.dht.is_active else \
+                self.dht.start(client_info.dht_node_ip, client_info.dht_node_port)
 
-        Encrypter.create_rsa_keys(config.PATHS.KEYS, self._user_id)
+        if self._client_info.application_port != client_info.application_port:
+            self._logger.debug(f'Переустанавливаю порт прослушивания приложения с [{self._listen_communication_port}] на [{client_info.application_port}].')
+            self.setup_listener(client_info.application_port)
+
+        self._client_info = client_info
 
     def get_ip_address(self) -> str:
         """Возвращает IP-адрес клиента в зависимости от настроек."""
-        if self._use_local_ip:
+        if self._client_info.use_local_ip:
             return self._get_local_ip_address()
         else:
             return self._get_global_ip_address()
@@ -1145,15 +1344,6 @@ class ClientManager:
             self._logger.error(f"Ошибка при получении глобального IP: {e}.")
             return ''
     
-    def is_ipv4(self, addr: str) -> bool:
-        """Проверяет, является ли строка допустимым IPv4 адресом."""
-        # Регулярное выражение для проверки IPv4
-        pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
-        if re.match(pattern, addr):
-            # Проверяем, что каждый октет находится в диапазоне от 0 до 255
-            return all(0 <= int(part) <= 255 for part in addr.split('.'))
-        return False
-    
 @dataclass
 class SessionInfo:
     """Хранит информацию о сессии, включая идентификаторы диалога и сессии.
@@ -1174,6 +1364,11 @@ class ClientHelper:
         self._inactive_dialogs: Dict[UserIdType, SessionInfo] = {}
 
         self._ip_address: IPAddressType = ''
+
+        self._create_accounts_db()
+
+    def _create_accounts_db(self):
+        AccountDatabaseManager.create_database()
 
     def _create_file_from_data(self, app_root: Any, data: MessageFileData, peer_user_id: str) -> bool:
         """
@@ -1209,14 +1404,236 @@ class ClientHelper:
         self._ip_address = self._client.get_ip_address()
         return self._ip_address
     
+    def is_valid_ipv4(self, addr: str) -> bool:
+        """
+            Проверяет, является ли строка допустимым IPv4 адресом.
+        Args:
+            addr (str): IPv4 адрес.
+
+        Returns:
+            True - если адрес корректен.
+        """
+        # Регулярное выражение для проверки IPv4
+        pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
+        if re.match(pattern, addr):
+            # Проверяем, что каждый октет находится в диапазоне от 0 до 255
+            return all(0 <= int(part) <= 255 for part in addr.split('.'))
+        return False
+    
+    def is_valid_port(self, port_str: str) -> bool:
+        """
+            Проверяет, является ли переданная строка корректным портом.
+
+        Args:
+        port_str (str): Строка, содержащая порт.
+
+        Returns:
+        bool: True если порт корректен, иначе False.
+        """
+        try:
+            # Преобразуем строку в целое число
+            port = int(port_str)
+            # Проверяем, что порт находится в допустимом диапазоне
+            if 1 <= port <= 65535:
+                return True
+            else:
+                return False
+        except ValueError:
+            # Если преобразование не удалось, строка не является числом
+            return False
+
+    def is_port_avaliable(self, port: PortType) -> bool:
+        """
+        Проверяет доступность порта на локальной машине.
+        
+        Args:
+            port (PortType): Номер порта для проверки.
+            
+        Returns:
+            bool: Возвращает True, если порт доступен, иначе False.
+        """
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(('127.0.0.1', port))
+                # Если bind прошел успешно, порт свободен
+                return True
+            except socket.error:
+                # Если возникла ошибка, порт уже занят
+                return False
+
+    def extend_to_32_bytes(self, input_string: str) -> str:
+        """
+            Дублирует строку до размера в 32 байта.
+
+        Args:
+            input_string (str): Входная строка.
+
+        Returns:
+            str: Полученная строка размером 32 байта.
+        """
+        if len(input_string) >= 32:
+            return input_string[:32]
+
+        # Вычисляем, сколько раз нужно дублировать исходную строку
+        repeat_count = 32 // len(input_string)
+        
+        # Вычисляем, сколько байт необходимо добавить после дублирования
+        remaining_bytes = 32 % len(input_string)
+
+        # Создаем строку, повторяя исходную и добавляя остаток
+        return input_string * repeat_count + input_string[:remaining_bytes]
+
+    def generate_random_string(self, number_of_symbols: int = 12) -> UserIdType:
+        """
+            Генерирует строку из случайных символов.
+
+        Args:
+            number_of_symbols (int): Количество символов. По умолчанию 12.
+
+        Returns:
+            Строка из случайных символов.
+        """
+        return ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(number_of_symbols))
+
     def is_own_ip(self, peer_ip: IPAddressType) -> bool:
         return self._ip_address == peer_ip
 
-    def set_client_info(self, user_id: UserIdType, user_name: str, use_local_ip: bool):
+    def set_client_info(self, client_info: ClientInfo) -> None:
         """
             Устанавливает значения, введенные пользователем.
+        Args:
+            client_info (ClientInfo): Клиентская информация.
         """
-        self._client.set_client_info(user_id, user_name, use_local_ip)
+        self._client.set_client_info(client_info)
+
+    def get_hash(self, input_string: str, desired_length: int = 256) -> str:
+        """
+            Генерирует хэш из строки заданной длины. Хэш функция sha256.
+
+        Args:
+            input_string (str): Исходная строка.
+            desired_length (int): Количество символов в хэш строке.
+        """
+        # Создание хэш-объекта SHA-256
+        hash_object = hashlib.sha256()
+        hash_object.update(input_string.encode('utf-8'))
+        
+        # Получение шестнадцатеричного дайджеста хэша
+        full_hash = hash_object.hexdigest()
+        
+        # Отрегулируйте длину хэша до желаемой длины
+        if desired_length <= len(full_hash):
+            # Если желаемая длина меньше фактической длины хэша, обрежьте ее
+            return full_hash[:desired_length]
+        else:
+            # Если желаемая длина больше, расширьте хэш простым способом
+            # Здесь мы просто повторяем хэш до тех пор, пока не будет достигнута требуемая длина, а затем усекаем
+            extended_hash = (full_hash * ((desired_length // len(full_hash)) + 1))[:desired_length]
+            return extended_hash
+
+    def load_user_info(self, user_id: UserIdType, password: str) -> ClientInfo:
+        """
+            Загружает информацию о пользователе из базы данных.
+
+        Args:
+            user_id (UserIdType): ID пользователя.
+            password (str): Пароль пользователя.
+
+        Returns:
+            ClientInfo: Загруженная информация.
+        """
+        client_info = ClientInfo(
+            user_id=user_id,
+            user_password=password
+        )
+
+        AccountDatabaseManager.load_user_info(client_info)
+        client_info.user_id_hash = self.get_hash(client_info.user_id, len(client_info.user_id) + config.USER_ID_HASH_POSTFIX_SIZE)
+        return client_info
+
+    def update_dht_peers_keys(self, dht_peers_keys: DHTNodeHistory) -> None:
+        """
+            Обновляет список введенных пользователем DHT ключей собеседников.
+
+        Args:
+            dht_peers_keys (DHTNodeHistory): Список введенных пользователем DHT ключей собеседников.
+        """
+        try:
+            AccountDatabaseManager.update_dht_peers_keys(
+                self._client._client_info.user_id,
+                Encrypter.encrypt_with_aes(self._client._client_info.user_password.encode(), dht_peers_keys.model_dump_json())
+            )
+        except DatabaseSetDataError as e:
+            self._logger.error(f'{e}')
+
+    def get_all_registered_users(self) -> list[UserIdType]:
+        """
+            Возвращает список ID всех зарегистрированных пользователей из базы данных.
+        
+        Returns:
+            list[UserIdType]: Список ID зарегистрированных пользователей.
+        """
+        try:
+            return AccountDatabaseManager.get_all_registered_users()
+        except DatabaseGetDataError:
+            return []
+
+    def save_account(self) -> None:
+        """
+            Сохраняет информацию о текущем пользователе в базу данных.
+        """
+        try:
+            AccountDatabaseManager.save_user_info(self._client._client_info)
+        except DatabaseSetDataError as e:
+            self._logger.error(f'{e}')
+
+    def check_password(self, user_id: UserIdType, password: str, expanded: bool = False) -> bool:
+        """
+            Проверяет введенный пароль на валидность.
+        
+        Args:
+            user_id (UserIdType): ID пользователя.
+            password (str): Пароль.
+            expanded (bool, optional): Дополнительная проверка: попытается расшифровать все ключа данного пользователя,
+              чтобы убедится, что пароль действительно корректен, а не подменен вместе с хэшем. По умолчанию False.
+
+        Returns:
+            bool: True - если пароль правильный, иначе False.
+        """
+        try:
+            password_hash = AccountDatabaseManager.load_password_hash(user_id)
+        except DatabaseGetDataError as e:
+            self._logger.error(f'{e}')
+            return False
+
+        if not expanded:
+            return password_hash == self.get_hash(password)
+
+        # Проверяем по хэшу
+        if password_hash != self.get_hash(password):
+            return False
+  
+        try:
+            user_id_hash = self.get_hash(user_id, len(user_id) + config.USER_ID_HASH_POSTFIX_SIZE)
+            # Проверяем по RSA ключам
+            Encrypter.load_rsa_public_key(config.PATHS.KEYS, user_id_hash, password)
+
+            # Проверяем по расшифровке ключей диалогов
+            try:
+                all_keys = AccountDatabaseManager.get_all_keys_for_user_id(user_id_hash)
+            # Если у нас для него нет ключей диалогов, а всё остальное корректно, то говорим, что это мы.
+            except KeyLoadingError:
+                return True
+            for keys in all_keys:
+                Encrypter.decrypt_with_aes(password.encode(), keys[0])
+                
+        except KeyLoadingError as e:
+            self._logger.error(f'{e}')
+            return False
+        except Exception:
+            return False
+        return True
 
     def set_data_to_dht(self, key: str, data: DHTPeerProfile) -> None:
         self._client.dht.set_data(key=key, data=data.model_dump_json())
@@ -1235,6 +1652,14 @@ class ClientHelper:
 
     def send_message_to_another_client(self, message: MessageData, peer_user_id: UserIdType) -> None:
         self._client.get_session(self._active_dialogs[peer_user_id].session_id).send(message)
+
+    def relogin(self) -> None:
+        """
+            Выходит из текущего аккаунта, закрывая все соединения для данного пользователя.
+        """
+        self._client.close_all_sessions()
+        self._active_dialogs = {}
+        self._inactive_dialogs = {}
 
     def handle_dialog(self, app_root: Any, dialogs: DialogManager) -> None:
         """
@@ -1264,57 +1689,78 @@ class ClientHelper:
 
                     match event_data.event_type:
                         case NetworkEventType.CONNECT:
-                            if event_data.event_data.user_id in self._inactive_dialogs:
-                                dialogs.load_dialog(self._inactive_dialogs[event_data.event_data.user_id].dialog_id)
+                            if event_data.event_data.user_id_hash in self._inactive_dialogs:
+                                dialogs.load_dialog(self._inactive_dialogs[event_data.event_data.user_id_hash].dialog_id)
                                 
-                                self._active_dialogs[event_data.event_data.user_id] = SessionInfo(
-                                    dialog_id=self._inactive_dialogs[event_data.event_data.user_id].dialog_id,
+                                self._active_dialogs[event_data.event_data.user_id_hash] = SessionInfo(
+                                    dialog_id=self._inactive_dialogs[event_data.event_data.user_id_hash].dialog_id,
                                     session_id=event_data.event_data.session_id
                                 )
 
-                                del self._inactive_dialogs[event_data.event_data.user_id]
+                                del self._inactive_dialogs[event_data.event_data.user_id_hash]
                             else:
-                                self._active_dialogs[event_data.event_data.user_id] = SessionInfo(
+                                self._active_dialogs[event_data.event_data.user_id_hash] = SessionInfo(
                                     dialog_id=dialogs.add_dialog(
                                         dialog_name=event_data.event_data.user_name,
-                                        interlocutor_id=event_data.event_data.user_id,
+                                        interlocutor_id=event_data.event_data.user_id_hash,
                                         dialog_history=event_data.event_data.data), # type: ignore
                                     session_id=event_data.event_data.session_id
                                 )
                                 
                         case NetworkEventType.DISCONNECT:
                             # self._chats.hide_dialog(self._active_dialogs[event_data[Event.EVENT_CONNECT][0]])
-                            if event_data.event_data.user_id in self._active_dialogs:
-                                dialogs.inactivate_dialog(self._active_dialogs[event_data.event_data.user_id].dialog_id)
+                            if event_data.event_data.user_id_hash in self._active_dialogs:
+                                dialogs.inactivate_dialog(self._active_dialogs[event_data.event_data.user_id_hash].dialog_id)
                                 
-                                self._inactive_dialogs[event_data.event_data.user_id] = SessionInfo(
-                                    dialog_id=self._active_dialogs[event_data.event_data.user_id].dialog_id,
+                                self._inactive_dialogs[event_data.event_data.user_id_hash] = SessionInfo(
+                                    dialog_id=self._active_dialogs[event_data.event_data.user_id_hash].dialog_id,
                                     session_id=-1
                                 )
                                 
-                                del self._active_dialogs[event_data.event_data.user_id]
+                                del self._active_dialogs[event_data.event_data.user_id_hash]
 
                         case NetworkEventType.SEND_DATA:
-                            if event_data.event_data.resend_flag and event_data.event_data.user_id in self._active_dialogs:
-                                threading.Thread(target=_show_message, args=(event_data.event_data.user_id, event_data.event_data.data), daemon=True).start()
+                            if event_data.event_data.resend_flag and event_data.event_data.user_id_hash in self._active_dialogs:
+                                threading.Thread(target=_show_message, args=(event_data.event_data.user_id_hash, event_data.event_data.data), daemon=True).start()
 
                         case NetworkEventType.RECEIVE_DATA:
-                            if event_data.event_data.user_id in self._active_dialogs:
-                                threading.Thread(target=_show_message, args=(event_data.event_data.user_id, event_data.event_data.data), daemon=True).start()
+                            if event_data.event_data.user_id_hash in self._active_dialogs:
+                                threading.Thread(target=_show_message, args=(event_data.event_data.user_id_hash, event_data.event_data.data), daemon=True).start()
                         
                         case NetworkEventType.REQUEST_FILE:
                             # Пишем файл
                             threading.Thread(target=self._create_file_from_data,
-                                            args=(app_root, event_data.event_data.data, event_data.event_data.user_id),
+                                            args=(app_root, event_data.event_data.data, event_data.event_data.user_id_hash),
                                             daemon=True).start()
                         case NetworkEventType.FILE_ACCEPTED:
-                            self._logger.debug(f'Файл [{event_data.event_data.data}] успешно передан клиенту [{event_data.event_data.user_id}].')# type: ignore
-                            CustomMessageBox.show(app_root, 'Успешно', f'Файл [{event_data.event_data.data}] успешно передан клиенту [{event_data.event_data.user_id}].', CustomMessageType.SUCCESS)# type: ignore
+                            self._logger.debug(f'Файл [{event_data.event_data.data}] успешно передан клиенту [{event_data.event_data.user_id_hash}].')# type: ignore
+                            CustomMessageBox.show(app_root, 'Успешно', f'Файл [{event_data.event_data.data}] успешно передан клиенту [{event_data.event_data.user_id_hash}].', CustomMessageType.SUCCESS)# type: ignore
+                        
                         case NetworkEventType.ALREADY_EXISTS:
-                            self._logger.debug(f'Диалог с клиентом [{event_data.event_data.user_id}] от имени [{self._client._user_id}] уже открыт!')
-                            CustomMessageBox.show(app_root, 'Внимание', f'Диалог с клиентом [{event_data.event_data.user_id}] от имени [{self._client._user_id}] уже открыт!', CustomMessageType.WARNING)
+                            self._logger.debug(f'Диалог с клиентом [{event_data.event_data.user_id_hash}] от имени [{self._client._client_info.user_id}] уже открыт!')
+                            CustomMessageBox.show(app_root, 'Ошибка', f'Диалог с клиентом [{event_data.event_data.user_id_hash}] от имени [{self._client._client_info.user_id}] уже открыт!', CustomMessageType.ERROR)
+                        
+                        case NetworkEventType.CONNECTING_TO_OURSELVES:
+                            self._logger.error("Пока нельзя подключаться самому к себе!")
+                            CustomMessageBox.show(app_root, 'Ошибка', "Пока нельзя подключаться самому к себе!", CustomMessageType.ERROR)
+                        
+                        case NetworkEventType.FAILED_CONNECT:
+                            self._logger.debug(f'Не удалось подключиться к клиенту [{event_data.event_data.address}].')
+                            CustomMessageBox.show(app_root, 'Ошибка', f'Не удалось подключиться к клиенту [{event_data.event_data.address}].', CustomMessageType.ERROR)
+                        
+                        case NetworkEventType.UNKNOWN_RSA_PUBLIC_KEY:
+                            self._logger.debug(f'Получен неизвестный публичный ключ RSA от клиента [{event_data.event_data.user_id_hash}].')
+                            result = YesNoDialog.ask_yes_no(app_root, 'Предупреждение', f'Получен неизвестный публичный ключ RSA от клиента [{event_data.event_data.user_id_hash}].\n\n'
+                                                   f'За данным аккаунтом может оказаться злоумышленник, Вы доверяете данному пользователю и хотите начать диалог?')
+                            
+                            try:
+                                self._client.get_session(event_data.event_data.session_id).set_client_decision(result)
+                            except UnavailableSessionIdError:
+                                CustomMessageBox.show(app_root, 'Ошибка', f'Соединение с клиентом [{event_data.event_data.user_id_hash}] было закрыто из-за неактивности.', CustomMessageType.ERROR)
+
                         case NetworkEventType.CLOSE_CLIENT:
                             return
+                        
                 except Exception as e:
                     self._logger.error(f"Произошла ошибка при обработке события. Ошибка [{e}].")
 
@@ -1322,6 +1768,6 @@ class ClientHelper:
         """
             Закрывает клиента и dht.
         """
-        if self._client.is_dht_active:
+        if self._client.dht.is_active:
             self._client.dht.stop()
         self._client.close()

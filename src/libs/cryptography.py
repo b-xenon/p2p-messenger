@@ -13,7 +13,7 @@ from Crypto.Random import get_random_bytes
 import os
 from pydantic import BaseModel
 
-from config import config, PathType
+from config import UserIdHashType, config, PathType, UserIdType
 from libs.additional_exeptions import UnavaliableDataFormatError
 
 PEM_FormatData = str
@@ -53,14 +53,14 @@ class RSAKeyLoadingError(FileNotFoundError):
 
 
 class Encrypter:
-    def __init__(self, keys_path: PathType, current_user_id: str) -> None:
+    def __init__(self, keys_path: PathType, user_id_hash: UserIdType, user_password: str) -> None:
         """
             Инициализирует объект Encrypter, загружает необходимые ключи.
 
         Args:
             keys_path: Путь к директории с ключами.
         """
-        self._keys_path: PathType = os.path.join(keys_path, current_user_id)
+        self._keys_path: PathType = os.path.join(keys_path, user_id_hash)
         self._private_key: ECC.EccKey
         self._public_key: ECC.EccKey
         self._secret_key: bytes = b''
@@ -68,7 +68,7 @@ class Encrypter:
         self._rsa_private_key: RSA.RsaKey
 
         os.makedirs(self._keys_path, exist_ok=True)
-        self._load_rsa_keys()
+        self._load_rsa_keys(user_password)
         self.generate_dh_keypair()
 
     def get_public_key(self) -> PEM_FormatData:
@@ -102,7 +102,8 @@ class Encrypter:
         # Использование HKDF для получения ключа фиксированного размера из общего секрета
         self._secret_key = HKDF(shared_secret_bytes, 16, b"", SHA256) # type: ignore
 
-    def encode_to_b64(self, message: Union[str, bytes]) -> B64_FormatData:
+    @staticmethod
+    def encode_to_b64(message: Union[str, bytes]) -> B64_FormatData:
         """
             Кодирует строку или байты в строку Base64.
 
@@ -125,7 +126,8 @@ class Encrypter:
             # Если тип данных не str и не bytes, поднимаем исключение
             raise UnavaliableDataFormatError("Предоставленный формат данных не поддерживается для кодировки Base64.")
 
-    def decode_from_b64(self, encoded_data: B64_FormatData) -> bytes:
+    @staticmethod
+    def decode_from_b64(encoded_data: B64_FormatData) -> bytes:
         """
             Декодирует данные из строки Base64 в байты.
 
@@ -159,7 +161,7 @@ class Encrypter:
         iv = cipher.iv
 
         # Кодирование зашифрованных данных и IV в base64 для передачи в JSON
-        return EncryptedData(data_b64=self.encode_to_b64(ct_bytes), iv_b64=self.encode_to_b64(iv))
+        return EncryptedData(data_b64=Encrypter.encode_to_b64(ct_bytes), iv_b64=Encrypter.encode_to_b64(iv))
 
     def decrypt(self, data: EncryptedData) -> str:
         """
@@ -178,9 +180,9 @@ class Encrypter:
         return pt.decode()
     
     @staticmethod
-    def encrypt_for_storage(database_key: bytes, data: str) -> bytes:
+    def encrypt_with_aes(key: bytes, data: str) -> bytes:
         """
-            Шифрует данные для хранения в базе данных.
+            Шифрует данные с использованием алгоритма AES.
 
         Args:
             data: Данные для шифрования.
@@ -189,14 +191,14 @@ class Encrypter:
             Зашифрованные данные, включая инициализирующий вектор (IV).
         """
         iv = get_random_bytes(AES.block_size)
-        cipher = AES.new(database_key, AES.MODE_CBC, iv)
+        cipher = AES.new(key, AES.MODE_CBC, iv)
         ct_bytes = cipher.encrypt(pad(data.encode(), AES.block_size))
         return iv + ct_bytes
     
     @staticmethod
-    def decrypt_from_storage(database_key: bytes, data: bytes) -> str:
+    def decrypt_with_aes(key: bytes, data: bytes) -> str:
         """
-            Расшифровывает данные из базы данных.
+            Расшифровывает данные с использованием алгоритма AES.
 
         Args:
             data: Зашифрованные данные, включая IV.
@@ -205,30 +207,31 @@ class Encrypter:
             Расшифрованные данные.
         """
         iv, ct = data[:16], data[16:]
-        cipher = AES.new(database_key, AES.MODE_CBC, iv)
+        cipher = AES.new(key, AES.MODE_CBC, iv)
         pt = unpad(cipher.decrypt(ct), AES.block_size)
         return pt.decode()
     
     @staticmethod
-    def create_rsa_keys(keys_path: PathType, current_user_id: str) -> None:
+    def create_rsa_keys(keys_path: PathType, user_id_hash: UserIdHashType, user_password: str) -> None:
         """
             Генерирует RSA ключи для пользователя и сохраняет их на диск.
 
         Args:
             keys_path: Путь к директории для сохранения ключей.
-            current_user_id: Идентификатор пользователя, для которого генерируются ключи.
+            user_id_hash: Идентификатор пользователя, для которого генерируются ключи.
+            user_password: Пароль пользователя, для шифрования ключей.
         """
-        key = RSA.generate(2048)
-        private_key_path = os.path.join(keys_path, current_user_id, config.FILES.RSA_PRIV)
-        public_key_path = os.path.join(keys_path, current_user_id, config.FILES.RSA_PUB)
+        private_key_path = os.path.join(keys_path, user_id_hash, config.FILES.RSA_PRIV)
+        public_key_path = os.path.join(keys_path, user_id_hash, config.FILES.RSA_PUB)
         
-        os.makedirs(os.path.join(keys_path, current_user_id), exist_ok=True)
+        os.makedirs(os.path.join(keys_path, user_id_hash), exist_ok=True)
         if os.path.exists(private_key_path) and os.path.exists(public_key_path):
             return
 
-        with open(private_key_path, "w") as prv_file, open(public_key_path, "w") as pub_file:
-            prv_file.write(key.export_key().decode())
-            pub_file.write(key.publickey().export_key().decode())
+        key = RSA.generate(2048)
+        with open(private_key_path, "wb") as prv_file, open(public_key_path, "wb") as pub_file:
+            prv_file.write(Encrypter.encrypt_with_aes(user_password.encode(), key.export_key().decode()))
+            pub_file.write(Encrypter.encrypt_with_aes(user_password.encode(), key.publickey().export_key().decode()))
 
     def encrypt_with_rsa(self, message: str, rsa_public_key: RSA_KeyType = '') -> B64_FormatData:
         """
@@ -236,6 +239,7 @@ class Encrypter:
 
         Args:
             message (str): Сообщение для шифрования.
+            rsa_public_key (RSA_KeyType): Публичный ключ RSA для шифрования. Если ничего не передавать, то шифрует нашим ключом.
 
         Returns:
             B64_FormatData: Шифрованные данные.
@@ -243,7 +247,7 @@ class Encrypter:
         _rsa_public_key = RSA.import_key(rsa_public_key.encode()) if rsa_public_key else self._rsa_public_key
         cipher = PKCS1_OAEP.new(_rsa_public_key, hashAlgo=SHA256)
         encrypted_message = cipher.encrypt(message.encode())
-        return self.encode_to_b64(encrypted_message)
+        return Encrypter.encode_to_b64(encrypted_message)
 
     def decrypt_with_rsa(self, encrypted_message: B64_FormatData) -> str:
         """
@@ -271,7 +275,7 @@ class Encrypter:
         """
         h = SHA256.new(self.decode_from_b64(encrypted_message))
         signature = pkcs1_15.new(self._rsa_private_key).sign(h)
-        return self.encode_to_b64(signature)
+        return Encrypter.encode_to_b64(signature)
 
     def verify_signature(self, public_key: RSA_KeyType, encrypted_message: B64_FormatData, signature: B64_FormatData) -> bool:
         """
@@ -297,76 +301,71 @@ class Encrypter:
         return self._rsa_public_key.export_key(format='PEM').decode('utf-8')
 
     @staticmethod
-    def _create_database_encode_key(key_path: PathType) -> bytes:
+    def _create_database_encode_key() -> bytes:
         """
             Создает новый ключ шифрования для базы данных.
         """
-        key = get_random_bytes(32)
-        Encrypter._save_database_encode_key(key, key_path)
-        return key
+        return get_random_bytes(32)
 
     @staticmethod
-    def load_database_encode_key(key_path: PathType, current_user_id: str, peer_id: str) -> bytes:
+    def load_database_encode_key(user_id_hash: UserIdHashType, user_password: str, peer_id_hash: UserIdHashType) -> bytes:
         """
-            Загружает ключ шифрования базы данных из файла, создавая его при необходимости.
+            Загружает ключ шифрования базы данных, создавая его при необходимости.
         """
-        _key_path = os.path.join(key_path, current_user_id, peer_id)
-        db_key = os.path.join(_key_path, config.FILES.DB_KEY)
-        
-        os.makedirs(_key_path, exist_ok=True)
-        if os.path.exists(db_key):
-            with open(db_key, 'rb') as key_file:
-                return key_file.read()
-        
-        # Если существует в другом аакаунте, то просто копируем 
-        another_db_key = os.path.join(key_path, peer_id, current_user_id, config.FILES.DB_KEY)
-        print(another_db_key)
-        if os.path.exists(another_db_key):
-            with open(another_db_key, 'rb') as adb_file, open(db_key, 'wb') as odb_file:
-                file_data = adb_file.read()
-                odb_file.write(file_data)
-                return file_data
+        from libs.database import AccountDatabaseManager, KeyLoadingError
 
-        return Encrypter._create_database_encode_key(_key_path)
+        try:
+            db_key = AccountDatabaseManager.fetch_encryption_key(user_id_hash, peer_id_hash)
+            return Encrypter.decrypt_with_aes(user_password.encode(), db_key).encode()
+        except KeyLoadingError:
+            db_key = Encrypter._create_database_encode_key()
+            AccountDatabaseManager.update_encryption_key(
+                user_id_hash=user_id_hash,
+                peer_id_hash=peer_id_hash,
+                encryption_key=Encrypter.encrypt_with_aes(user_password.encode(), db_key.decode())
+            )
+            return db_key
 
-    @staticmethod
-    def _save_database_encode_key(key: bytes, key_path: PathType) -> None:
-        """
-            Сохраняет ключ шифрования базы данных в файл.
-        """
-        with open(os.path.join(key_path, config.FILES.DB_KEY), 'wb') as key_file:
-            key_file.write(key)
-    
-    def _load_rsa_keys(self) -> None:
+    def _load_rsa_keys(self, user_password: str) -> None:
         """
             Загружает RSA ключи из файла.
+        
+        Args:
+            user_password: Пароль пользователя, для расшифровки ключей.
         """
         private_key_path = os.path.join(self._keys_path, config.FILES.RSA_PRIV)
         public_key_path = os.path.join(self._keys_path, config.FILES.RSA_PUB)
         
         if os.path.exists(private_key_path) and os.path.exists(public_key_path):
             try:
-                 with open(private_key_path, "r") as prv_file, open(public_key_path, "r") as pub_file:
-                    self._rsa_private_key = RSA.import_key(prv_file.read())
-                    self._rsa_public_key = RSA.import_key(pub_file.read())
+                 with open(private_key_path, "rb") as prv_file, open(public_key_path, "rb") as pub_file:
+                    self._rsa_private_key = RSA.import_key(
+                        Encrypter.decrypt_with_aes(user_password.encode(), prv_file.read()))
+                    self._rsa_public_key = RSA.import_key(
+                        Encrypter.decrypt_with_aes(user_password.encode(), pub_file.read()))
             except Exception as e:
                 raise RSAKeyLoadingError(self._keys_path, f"Ошибка при чтении файлов ключей RSA: {str(e)}")
         else:
             raise RSAKeyLoadingError(self._keys_path, "Файлы ключей RSA не существуют!")
     
     @staticmethod
-    def load_rsa_public_key(key_path: PathType, current_user_id: str) -> RSA_KeyType:
+    def load_rsa_public_key(key_path: PathType, user_id_hash: UserIdHashType, user_password: str) -> RSA_KeyType:
         """
             Загружает публичный RSA ключ из файла.
+        
+        Args:
+            keys_path: Путь к директории для сохранения ключей.
+            user_id_hash: Идентификатор пользователя, для которого загружается ключ.
+            user_password: Пароль пользователя, для расшифровки ключа.
         """
-        key_path = os.path.join(key_path, current_user_id)
+        key_path = os.path.join(key_path, user_id_hash)
 
         public_key_path = os.path.join(key_path, config.FILES.RSA_PUB)
         
         if os.path.exists(public_key_path):
             try:
-                with open(public_key_path, "r") as pub_file:
-                    rsa_public_key = pub_file.read()
+                with open(public_key_path, "rb") as pub_file:
+                    rsa_public_key = Encrypter.decrypt_with_aes(user_password.encode(), pub_file.read())
                 return rsa_public_key
             except Exception as e:
                 raise RSAKeyLoadingError(key_path, f"Ошибка при чтении файлов ключей RSA: {str(e)}")
