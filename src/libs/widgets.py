@@ -100,11 +100,21 @@ class _MessageBox(tk.Toplevel):
     def copy_text(self):
         pyperclip.copy(self._message)
 
+    def run(self, blocking: bool = False) -> None:
+        self.create_widgets()
+
+        if blocking:
+            # Захват ввода для модального окна
+            self.grab_set()
+            # Ограничение доступа к другим окнам до закрытия этого окна
+            self.wait_window()
+
 class CustomMessageBox:
     @staticmethod
-    def show(master: Any, title: str, message: str, message_type: CustomMessageType = CustomMessageType.ANY):
+    def show(master: Any, title: str, message: str, message_type: CustomMessageType = CustomMessageType.ANY, blocking: bool = False):
         # Создаем и показываем конкретный тип сообщения
-        _MessageBox(master, title, message, message_type).create_widgets()
+        _MessageBox(master, title, message, message_type).run(blocking)
+
 
 class ClientDecision(Enum):
     NONE = -1

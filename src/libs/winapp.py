@@ -188,7 +188,16 @@ class WinApp(TkinterDnD.Tk):
         menu_additional.add_command(label='Cкопировать мой DHT ключ', command=lambda: pyperclip.copy(self._client_info.user_dht_key))
         menu_additional.add_separator()
         menu_additional.add_command(label='Изменить данные аккаунта и сети', command=self._create_child_window_for_entering_user_info)
-        menu_additional.add_command(label='Выйти из аккаунта')
+        menu_additional.add_separator()
+
+        def __logout():
+            self._change_account()
+            self._client_info = ClientInfo()
+            self.title(f"Client")
+            registered_users = self._client_helper.get_all_registered_users()
+            threading.Thread(target=self._create_sign_in_window, args=(registered_users,), daemon=True).start()
+
+        menu_additional.add_command(label='Выйти из аккаунта', command=__logout)
 
         menu_main.add_cascade(label='Темы', menu=menu_themes)
         menu_main.add_cascade(label='Настройки', menu=menu_additional)
@@ -696,6 +705,12 @@ class WinApp(TkinterDnD.Tk):
         """
             Обрабатывает данные, введённые пользователем.
         """
+        wg.CustomMessageBox.show(self, 'Инфо', 'Подождите, идет загрузка аккаунта.', wg.CustomMessageType.INFO)
+
+        if first_initialization:
+            self._logger.debug(f'Сохраняю аккаунт [{self._client_info.user_id}] в базу данных.')
+            self._client_helper.save_account()
+
         self._last_user_id = self._client_info.user_id
         self._client_helper.set_client_info(deepcopy(self._client_info))
 
@@ -718,10 +733,6 @@ class WinApp(TkinterDnD.Tk):
                 )
             )
         )
-
-        if first_initialization:
-            self._logger.debug(f'Сохраняю аккаунт [{self._client_info.user_id}] в базу данных.')
-            self._client_helper.save_account()
 
     def _check_data_for_validity(self, data: str) -> bool:
         """
