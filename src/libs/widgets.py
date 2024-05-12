@@ -1029,6 +1029,7 @@ class DialogManager(ttk.Frame):
         """
         if dialog_id in self._dialogs:
             self._dialogs[dialog_id].dialog._dialog_name = dialog_name
+            self._notebook_dialogs.tab(self._dialogs[dialog_id].tab_id, text=dialog_name)
 
     def add_dialog(self, dialog_name: str, interlocutor_id: str, dialog_history: List[MessageTextData]) -> int:
         """
