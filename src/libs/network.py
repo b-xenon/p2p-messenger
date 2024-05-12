@@ -70,6 +70,7 @@ class NetworkEventType(Enum):
     CONNECTING_TO_OURSELVES = 8 # Подключение к самому себе
     UNKNOWN_RSA_PUBLIC_KEY = 9 # Неизвестный публичный ключ RSA
     FAILED_CONNECT = 10        # Не удалось подключиться
+    LOGOUT = 11                # Выход из аккаунта
 
 @dataclass
 class NetworkEventData:
@@ -110,7 +111,7 @@ class UserSession:
     session_counter: int = 0  # Статический счетчик для отслеживания количества сессий 
 
     def __init__(self, connection_socket: socket.socket, remote_address: Tuple[IPAddressType, PortType],
-                 user_id_hash: UserIdType, user_name: str, user_password: str, peer_rsa_public_key: RSA_KeyType,
+                 user_id_hash: UserIdHashType, user_name: str, user_password: str, peer_rsa_public_key: RSA_KeyType,
                  logger: Logger, event: NetworkEvent) -> None:
         """
         Инициализирует новую сессию пользователя.
@@ -251,7 +252,7 @@ class UserSession:
         if message.type == MessageType.Text and hasattr(message.message, 'id'):
             self._outbound_message_buffer[message.message.id] = message.message # type: ignore
     
-    def close(self, silent_mode: bool = False) -> None:
+    def close(self, logout: bool = False, silent_mode: bool = False) -> None:
         """
         Закрывает сессию, отключая соединение и регистрируя событие отключения.
 
@@ -267,7 +268,10 @@ class UserSession:
 
             # Если есть информация о собеседнике, регистрируем событие отключения
             if self._peer_user_id_hash:
-                self._send_event(NetworkEventType.DISCONNECT)
+                if logout:
+                    self._send_event(NetworkEventType.LOGOUT)
+                else:
+                    self._send_event(NetworkEventType.DISCONNECT)
                 # Сохранение исходящих сообщений из временного буфера в базу данных
                 self._database.save_data(list(self._outbound_message_buffer.values()), is_outbound_message_buffer=True)
 
@@ -519,7 +523,12 @@ class UserSession:
         """
         try:
             self._logger.debug(f'Проверяю ключ собеседника [{peer_id_hash}] на наличие в базе данных.')
-            known_rsa_pub_keys = KnownRSAPublicKeys.parse_raw(AccountDatabaseManager.fetch_known_rsa_pub_keys(self._user_id_hash, peer_id_hash))
+            known_rsa_pub_keys = KnownRSAPublicKeys.parse_raw(
+                Encrypter.decrypt_with_aes(
+                    self._user_password.encode(),
+                    AccountDatabaseManager.fetch_known_rsa_pub_keys(self._user_id_hash, peer_id_hash)
+            ))
+
             if self._peer_rsa_public_key in known_rsa_pub_keys.keys:
                 self._logger.debug(f'Ключ собеседника присутствует в базе данных.')
                 return 1
@@ -555,9 +564,13 @@ class UserSession:
             peer_rsa_pub_key (RSA_KeyType): Ключ собеседника.
         """
         try:
-            known_rsa_pub_keys = KnownRSAPublicKeys.parse_raw(AccountDatabaseManager.fetch_known_rsa_pub_keys(self._user_id_hash, peer_id_hash))
-            known_rsa_pub_keys.keys.add(peer_rsa_pub_key)
+            known_rsa_pub_keys = KnownRSAPublicKeys.parse_raw(
+                Encrypter.decrypt_with_aes(
+                    self._user_password.encode(),
+                    AccountDatabaseManager.fetch_known_rsa_pub_keys(self._user_id_hash, peer_id_hash)
+            ))
             
+            known_rsa_pub_keys.keys.add(peer_rsa_pub_key)
             new_known_rsa_pub_keys = Encrypter.encrypt_with_aes(
                 self._user_password.encode(),
                 known_rsa_pub_keys.model_dump_json()
@@ -565,7 +578,7 @@ class UserSession:
             self._logger.debug('Добавляю новый публичный RSA ключ в БД к уже имеющимся.')
             AccountDatabaseManager.update_known_rsa_pub_keys(self._user_id_hash, peer_id_hash, new_known_rsa_pub_keys)
         
-        except KeyLoadingError:
+        except Exception:
             new_known_rsa_pub_keys = Encrypter.encrypt_with_aes(
                 self._user_password.encode(),
                 KnownRSAPublicKeys(keys=set([peer_rsa_pub_key])).model_dump_json()
@@ -644,8 +657,8 @@ class UserSession:
             Отправка ивента.
         """
         # Использование значений из kwargs, если они предоставлены, иначе использовать атрибуты класса
-        user_id_hash = kwargs.get('user_id_hash', self._peer_user_id_hash)
-        user_name = kwargs.get('user_name', self._peer_user_name)
+        user_id_hash = kwargs.pop('user_id_hash', self._peer_user_id_hash)
+        user_name = kwargs.pop('user_name', self._peer_user_name)
 
         # Формирование и отправка сообщения
         event_message = NetworkEventMessage(
@@ -1064,7 +1077,7 @@ class UserSession:
             user_id_hash=received_data.additional.user_id_hash,
             user_name=received_data.additional.user_name
         )
-        self.close()
+        self.close(silent_mode=True)
 
     def _send_exist(self) -> None:
         """
@@ -1102,7 +1115,7 @@ class UserSession:
         """
         # Формирование и отправка сообщения
         self._send_event(NetworkEventType.CONNECTING_TO_OURSELVES)
-        self.close()
+        self.close(silent_mode=True)
 
     def _send_connecting_to_ourselves(self) -> None:
             """
@@ -1188,7 +1201,7 @@ class ClientManager:
                 session = UserSession(
                     connection_socket=client_socket,
                     remote_address=addr,
-                    user_id_hash=self._client_info.user_id,
+                    user_id_hash=self._client_info.user_id_hash,
                     user_name=self._client_info.user_name,
                     user_password=self._client_info.user_password,
                     peer_rsa_public_key='',
@@ -1227,7 +1240,7 @@ class ClientManager:
         session = UserSession(
             connection_socket=socket.socket(socket.AF_INET, socket.SOCK_STREAM),
             remote_address=(peer_info.avaliable_ip, peer_info.avaliable_port),
-            user_id_hash=self._client_info.user_id,
+            user_id_hash=self._client_info.user_id_hash,
             user_name=self._client_info.user_name,
             user_password=self._client_info.user_password,
             peer_rsa_public_key=peer_info.rsa_public_key,
@@ -1244,7 +1257,7 @@ class ClientManager:
         self._logger.debug("Закрываю все сессии...")
         # Отправить сообщения всем сессиям о закрытии
         for session in list(self._sessions.values()):
-            session.close()
+            session.close(logout=True)
         self._logger.debug("Все сессии завершены.")
 
     def close(self) -> None:
@@ -1304,7 +1317,7 @@ class ClientManager:
                 self._client_info.dht_client_port != client_info.dht_client_port:
             self._logger.debug(f'Измению параметры DHT с ip [{self._client_info.dht_node_ip}],'
                                f' порт [{self._client_info.dht_node_port}], порт клиента [{self._client_info.dht_client_port}] на'
-                               f'ip [{client_info.dht_node_ip}],'
+                               f' ip [{client_info.dht_node_ip}],'
                                f' порт [{client_info.dht_node_port}], порт клиента [{client_info.dht_client_port}].'
             )
             self._logger.debug(f'Статус DHT [{self.dht.is_active}].')
@@ -1360,8 +1373,8 @@ class ClientHelper:
         self._logger: Logger = logger
         self._client: ClientManager = ClientManager(logger, config.NETWORK.CLIENT_COMMUNICATION_PORT)
 
-        self._active_dialogs: Dict[UserIdType, SessionInfo] = {}
-        self._inactive_dialogs: Dict[UserIdType, SessionInfo] = {}
+        self._active_dialogs: Dict[UserIdHashType, SessionInfo] = {}
+        self._inactive_dialogs: Dict[UserIdHashType, SessionInfo] = {}
 
         self._ip_address: IPAddressType = ''
 
@@ -1583,10 +1596,17 @@ class ClientHelper:
         """
             Сохраняет информацию о текущем пользователе в базу данных.
         """
+        AccountDatabaseManager.save_user_info(self._client._client_info)
+
+    def update_account(self) -> None:
+        """
+            Сохраняет информацию о текущем пользователе в базу данных.
+        """
         try:
-            AccountDatabaseManager.save_user_info(self._client._client_info)
+            AccountDatabaseManager.update_user_info(self._client._client_info)
         except DatabaseSetDataError as e:
             self._logger.error(f'{e}')
+
 
     def check_password(self, user_id: UserIdType, password: str, expanded: bool = False) -> bool:
         """
@@ -1641,24 +1661,23 @@ class ClientHelper:
     def get_data_from_dht(self, key: str) -> DHTPeerProfile:
         return DHTPeerProfile.parse_raw(self._client.dht.get_data(key=key))
 
-    def is_dialog_active(self, peer_user_id: UserIdType) -> bool:
-        return peer_user_id in self._active_dialogs
+    def is_dialog_active(self, peer_user_id_hash: UserIdHashType) -> bool:
+        return peer_user_id_hash in self._active_dialogs
 
-    def close_session(self, peer_user_id: UserIdType) -> None:
-        self._client.get_session(self._active_dialogs[peer_user_id].session_id).close()
+    def close_session(self, peer_user_id_hash: UserIdHashType) -> None:
+        self._client.get_session(self._active_dialogs[peer_user_id_hash].session_id).close()
 
     def connect(self, peer_info: DHTPeerProfile) -> None:
         self._client.connect(peer_info)
 
-    def send_message_to_another_client(self, message: MessageData, peer_user_id: UserIdType) -> None:
-        self._client.get_session(self._active_dialogs[peer_user_id].session_id).send(message)
+    def send_message_to_another_client(self, message: MessageData, peer_user_id_hash: UserIdHashType) -> None:
+        self._client.get_session(self._active_dialogs[peer_user_id_hash].session_id).send(message)
 
     def relogin(self) -> None:
         """
             Выходит из текущего аккаунта, закрывая все соединения для данного пользователя.
         """
         self._client.close_all_sessions()
-        self._active_dialogs = {}
         self._inactive_dialogs = {}
 
     def handle_dialog(self, app_root: Any, dialogs: DialogManager) -> None:
@@ -1680,10 +1699,10 @@ class ClientHelper:
 
                 try:
 
-                    def _show_message(user_id: UserIdType, message: MessageTextData):
+                    def _show_message(user_id_hash: UserIdHashType, message: MessageTextData):
                         nonlocal dialogs
                         
-                        dialog = dialogs.get_dialog(self._active_dialogs[user_id].dialog_id)
+                        dialog = dialogs.get_dialog(self._active_dialogs[user_id_hash].dialog_id)
                         if not dialog.exist_message(message):
                             dialog.recieve_message(message)
 
@@ -1708,7 +1727,6 @@ class ClientHelper:
                                 )
                                 
                         case NetworkEventType.DISCONNECT:
-                            # self._chats.hide_dialog(self._active_dialogs[event_data[Event.EVENT_CONNECT][0]])
                             if event_data.event_data.user_id_hash in self._active_dialogs:
                                 dialogs.inactivate_dialog(self._active_dialogs[event_data.event_data.user_id_hash].dialog_id)
                                 
@@ -1717,6 +1735,10 @@ class ClientHelper:
                                     session_id=-1
                                 )
                                 
+                                del self._active_dialogs[event_data.event_data.user_id_hash]
+
+                        case NetworkEventType.LOGOUT:
+                            if event_data.event_data.user_id_hash in self._active_dialogs:
                                 del self._active_dialogs[event_data.event_data.user_id_hash]
 
                         case NetworkEventType.SEND_DATA:

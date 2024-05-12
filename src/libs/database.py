@@ -282,6 +282,56 @@ class AccountDatabaseManager:
                 conn.close()
 
     @staticmethod
+    def update_user_info(user_info: ClientInfo) -> None:
+        """
+            Обновляет данные о настройках пользователя в базе данных.
+
+        Args:
+            user_info (ClientInfo): Информация о пользователе.
+        
+        Raises:
+            DatabaseSetDataError: Если не удалось записать данные.
+        """
+        try:
+            conn = AccountDatabaseManager.connect()
+            cursor = conn.cursor()
+
+            # Сохранение основной информации о пользователе
+            req = """
+            UPDATE user_info 
+            SET password_hash=?, 
+                user_name=?, 
+                dht_key=?, 
+                dht_node_ip=?, 
+                dht_node_port=?, 
+                dht_client_port=?, 
+                application_port=?, 
+                use_local_ip=?, 
+                dht_peers_keys=?
+            WHERE user_id=?;
+            """
+
+            cursor.execute(req, (
+                user_info.user_password_hash,
+                Encrypter.encrypt_with_aes(user_info.user_password.encode(), user_info.user_name),
+                Encrypter.encrypt_with_aes(user_info.user_password.encode(), user_info.user_dht_key),
+                Encrypter.encrypt_with_aes(user_info.user_password.encode(), user_info.dht_node_ip),
+                user_info.dht_node_port,
+                user_info.dht_client_port,
+                user_info.application_port,
+                user_info.use_local_ip,
+                Encrypter.encrypt_with_aes(user_info.user_password.encode(), user_info.dht_peers_keys.model_dump_json()),
+                user_info.user_id
+            ))
+
+            conn.commit()
+        except sqlite3.Error as e:
+            raise DatabaseSetDataError(f'Не удалось записать информацию о пользователе [{user_info.user_id}]! Произошла ошибка [{e}].')
+        finally:
+            if conn: # type: ignore
+                conn.close()
+
+    @staticmethod
     def load_password_hash(user_id: UserIdType) -> str:
         """
             Загружает хэш пароля из базы данных.
@@ -301,7 +351,7 @@ class AccountDatabaseManager:
             cursor.execute(req, (user_id,))
             password_hash = cursor.fetchone()
 
-            if password_hash:
+            if password_hash and password_hash[0]:
                 return password_hash[0]
             raise DatabaseGetDataError(f'Пользователь с ID [{user_id}] не найден в базе данных.')
         except sqlite3.Error as e:
@@ -509,7 +559,7 @@ class AccountDatabaseManager:
             req = "SELECT encryption_key FROM user_keys WHERE user_id_hash=? AND peer_id_hash=?;"
             cursor.execute(req, (user_id_hash, peer_id_hash))
             key = cursor.fetchone()
-            if key:
+            if key and key[0]:
                 return key[0] # Возвращаем ключ шифрования, если он найден
             raise KeyLoadingError(f'Ключ для [{peer_id_hash}] не найден!')
         except sqlite3.Error as e:
@@ -542,7 +592,7 @@ class AccountDatabaseManager:
             req = "SELECT known_rsa_pub_keys FROM user_keys WHERE user_id_hash=? AND peer_id_hash=?;"
             cursor.execute(req, (user_id_hash, peer_id_hash))
             key = cursor.fetchone()
-            if key:
+            if key and key[0]:
                 return key[0] # Возвращаем ключ шифрования, если он найден
             raise KeyLoadingError(f'Известные rsa ключи для [{peer_id_hash}] у [{user_id_hash}] не найдены!')
         except sqlite3.Error as e:

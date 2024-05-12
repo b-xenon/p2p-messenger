@@ -1,5 +1,7 @@
 from base64 import b64encode, b64decode
 import binascii
+import random
+import string
 from typing import Union
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.Protocol.KDF import HKDF
@@ -301,11 +303,11 @@ class Encrypter:
         return self._rsa_public_key.export_key(format='PEM').decode('utf-8')
 
     @staticmethod
-    def _create_database_encode_key() -> bytes:
+    def _create_database_encode_key() -> str:
         """
             Создает новый ключ шифрования для базы данных.
         """
-        return get_random_bytes(32)
+        return ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(32))
 
     @staticmethod
     def load_database_encode_key(user_id_hash: UserIdHashType, user_password: str, peer_id_hash: UserIdHashType) -> bytes:
@@ -322,9 +324,9 @@ class Encrypter:
             AccountDatabaseManager.update_encryption_key(
                 user_id_hash=user_id_hash,
                 peer_id_hash=peer_id_hash,
-                encryption_key=Encrypter.encrypt_with_aes(user_password.encode(), db_key.decode())
+                encryption_key=Encrypter.encrypt_with_aes(user_password.encode(), db_key)
             )
-            return db_key
+            return db_key.encode()
 
     def _load_rsa_keys(self, user_password: str) -> None:
         """

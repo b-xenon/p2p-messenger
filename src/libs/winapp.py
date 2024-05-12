@@ -11,7 +11,7 @@ from tkinterdnd2 import TkinterDnD
 from enum import Enum
 from dataclasses import dataclass
 
-from config import config
+from config import UserIdHashType, config
 from dht import DHTPeerProfile, EmptyDHTDataError
 from libs.cryptography import Encrypter
 from libs.message import MessageData
@@ -194,6 +194,8 @@ class WinApp(TkinterDnD.Tk):
             self._change_account()
             self._client_info = ClientInfo()
             self.title(f"Client")
+            self._combo_alien_dht_key.set('')
+            self._combo_alien_dht_key['values'] = []
             registered_users = self._client_helper.get_all_registered_users()
             threading.Thread(target=self._create_sign_in_window, args=(registered_users,), daemon=True).start()
 
@@ -236,8 +238,8 @@ class WinApp(TkinterDnD.Tk):
         button_connect_to_another_client.pack(padx=10, pady=10, side='left')
 
         def _send_message_to_another_client(message: MessageData) -> None:
-            peer_user_id: str = self._dialog_manager.get_current_dialog().get_interlocutor_id()
-            self._client_helper.send_message_to_another_client(message, peer_user_id)
+            peer_user_id_hash: UserIdHashType = self._dialog_manager.get_current_dialog().get_interlocutor_id()
+            self._client_helper.send_message_to_another_client(message, peer_user_id_hash)
 
         self._dialog_manager = wg.DialogManager(self._frame_main, command=lambda msg: _send_message_to_another_client(msg))
         self._dialog_manager.pack(expand=True, fill='both', padx=10, pady=10)
@@ -245,17 +247,17 @@ class WinApp(TkinterDnD.Tk):
         self._dialog_manager.add_right_click_handler(lambda pid: self._disconnect_from_client(pid))
         self._dialog_manager.add_middle_click_handler(lambda pid: self._disconnect_from_client(pid))
 
-    def _disconnect_from_client(self, peer_id: UserIdType) -> None:
+    def _disconnect_from_client(self, peer_id_hash: UserIdHashType) -> None:
         """
-            Отключаемся от клиента с заданным peer_id.
+            Отключаемся от клиента с заданным peer_id_hash.
 
         Args:
             peer_id (UserIdType): Идентификатор собеседника
         """
-        if self._client_helper.is_dialog_active(peer_id):
-            self._logger.debug(f"Отключаюсь от {peer_id}.")
-            self._client_helper.close_session(peer_id)
-            wg.CustomMessageBox.show(self, 'Инфо', f'Общение с [{peer_id}] завершено!', wg.CustomMessageType.SUCCESS)
+        if self._client_helper.is_dialog_active(peer_id_hash):
+            self._logger.debug(f"Отключаюсь от {peer_id_hash}.")
+            self._client_helper.close_session(peer_id_hash)
+            wg.CustomMessageBox.show(self, 'Инфо', f'Общение с [{peer_id_hash}] завершено!', wg.CustomMessageType.SUCCESS)
 
     def _connect_to_another_user(self) -> None:
         if not self._client_info.user_dht_key:
@@ -286,10 +288,10 @@ class WinApp(TkinterDnD.Tk):
         if self._client_info.dht_peers_keys.add_new_dht_key(self._client_info.dht_node_ip, self._combo_alien_dht_key.get()):
             self._client_helper.update_dht_peers_keys(self._client_info.dht_peers_keys)
         
-        if self._client_helper.is_own_ip(another_client_info.avaliable_ip):
-            self._logger.error("Пока нельзя подключаться самому к себе!")
-            wg.CustomMessageBox.show(self, 'Ошибка', "Пока нельзя подключаться самому к себе!", wg.CustomMessageType.ERROR)
-            return
+        # if self._client_helper.is_own_ip(another_client_info.avaliable_ip):
+        #     self._logger.error("Пока нельзя подключаться самому к себе!")
+        #     wg.CustomMessageBox.show(self, 'Ошибка', "Пока нельзя подключаться самому к себе!", wg.CustomMessageType.ERROR)
+        #     return
         
         # установаем соединение
         self._client_helper.connect(another_client_info)
@@ -389,7 +391,7 @@ class WinApp(TkinterDnD.Tk):
                     for dht_key in dht_node.dht_keys:
                         self._combo_alien_dht_key['values'] = (*self._combo_alien_dht_key['values'], dht_key)
 
-            threading.Thread(target=self._update_user_info, daemon=True).start()
+            threading.Thread(target=self._use_local_ip_var.set, args=(self._client_info.use_local_ip ,), daemon=True).start()
             child_window.destroy()
 
         def _sign_up():
@@ -492,7 +494,7 @@ class WinApp(TkinterDnD.Tk):
         labelframe_network_settings = ttk.LabelFrame(frame_main, text="Настройки сети")
         labelframe_network_settings.pack(padx=15, pady=15, expand=True, fill='both')
 
-        self.__use_local_ip_var_temp = tkinter.BooleanVar(value=self._use_local_ip_var.get())
+        self.__use_local_ip_var_temp = tkinter.BooleanVar(value=self._client_info.use_local_ip)
         check_ip = ttk.Checkbutton(labelframe_network_settings, text='Использовать локальный IP адрес', variable=self.__use_local_ip_var_temp)
         check_ip.pack(padx=15, pady=10)
 
@@ -684,12 +686,12 @@ class WinApp(TkinterDnD.Tk):
         self._client_info.dht_client_port  = int(self.__dht_client_port_var_temp.get())
         self._client_info.use_local_ip     = self.__use_local_ip_var_temp.get()
 
-        was_use_local_ip_var_changed = True if self._use_local_ip_var.get() != self.__use_local_ip_var_temp.get() else False 
+        was_use_local_ip_var_changed = True if self._use_local_ip_var.get() != self.__use_local_ip_var_temp.get() else False
 
         if was_use_local_ip_var_changed:
             self._use_local_ip_var.set(self.__use_local_ip_var_temp.get())
         else:
-            threading.Thread(target=self._update_user_info, args=(first_initialization,), daemon=True).start()
+            threading.Thread(target=self._update_user_info, daemon=True).start()
         
         self._is_child_window_for_entering_user_info_active = False
         self.__child_window.destroy()
@@ -701,18 +703,21 @@ class WinApp(TkinterDnD.Tk):
         self._client_helper.relogin()
         self._dialog_manager.close_all()
 
-    def _update_user_info(self, first_initialization: bool = False):
+    def _update_user_info(self):
         """
             Обрабатывает данные, введённые пользователем.
         """
         wg.CustomMessageBox.show(self, 'Инфо', 'Подождите, идет загрузка аккаунта.', wg.CustomMessageType.INFO)
 
-        if first_initialization:
-            self._logger.debug(f'Сохраняю аккаунт [{self._client_info.user_id}] в базу данных.')
-            self._client_helper.save_account()
-
         self._last_user_id = self._client_info.user_id
         self._client_helper.set_client_info(deepcopy(self._client_info))
+
+        try:
+            self._client_helper.save_account()
+            self._logger.debug(f'Сохраняю аккаунт [{self._client_info.user_id}] в базу данных.')
+        except Exception:
+            self._logger.debug(f'Обновляю аккаунт [{self._client_info.user_id}] в базе данных.')
+            self._client_helper.update_account()
 
         ip_address = self._client_helper.get_ip()
 
@@ -721,18 +726,24 @@ class WinApp(TkinterDnD.Tk):
 
         self._logger.debug(f'Добавляю свой ip [{ip_address}] в DHT по ключу [{self._client_info.user_dht_key}].')
         
-        self._client_helper.set_data_to_dht(
-            self._client_info.user_dht_key,
-            DHTPeerProfile(
-                avaliable_ip=ip_address,
-                avaliable_port=self._client_info.dht_client_port,
-                rsa_public_key=Encrypter.load_rsa_public_key(
-                    config.PATHS.KEYS,
-                    self._client_info.user_id_hash,
-                    self._client_info.user_password
+        def __set_data():
+            self._client_helper.set_data_to_dht(
+                self._client_info.user_dht_key,
+                DHTPeerProfile(
+                    avaliable_ip=ip_address,
+                    avaliable_port=self._client_info.application_port,
+                    rsa_public_key=Encrypter.load_rsa_public_key(
+                        config.PATHS.KEYS,
+                        self._client_info.user_id_hash,
+                        self._client_info.user_password
+                    )
                 )
             )
-        )
+        
+        try:
+            __set_data()
+        except ValueError:
+            __set_data()
 
     def _check_data_for_validity(self, data: str) -> bool:
         """

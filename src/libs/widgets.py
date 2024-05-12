@@ -153,16 +153,16 @@ class _YesNoDialog(tk.Toplevel):
         frame_buttom.pack()
 
         yes_button = ttk.Button(frame_buttom, text="Да", width=10, command=lambda: self.yes_no_result(ClientDecision.YES))
-        yes_button.pack(side=tk.LEFT, padx=5, pady=5)
+        yes_button.pack(side=tk.LEFT, padx=15, pady=15)
         no_button = ttk.Button(frame_buttom, text="Нет", width=10, command=lambda: self.yes_no_result(ClientDecision.NO))
-        no_button.pack(side=tk.LEFT, padx=5, pady=5)
+        no_button.pack(side=tk.LEFT, padx=15, pady=15)
         
         self.bind("<Return>", lambda event: self.yes_no_result(ClientDecision.YES))
         self.bind("<Escape>", lambda event: self.yes_no_result(ClientDecision.NO))
     
     def configure_window(self):
         self.resizable(False, False)
-        self.geometry('400x150')
+        self.geometry('400x190')
         self.resizable(False, False)
 
         try:
