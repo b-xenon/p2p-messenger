@@ -84,7 +84,10 @@ class DHT_Client:
             key: Ключ для данных.
             data: Данные для сохранения.
         """
-        await self._server.set(key, data)
+        try:
+            await self._server.set(key, data)
+        except RuntimeError:
+            pass
 
     def get_data(self, key: str) -> str:
         """
@@ -114,10 +117,13 @@ class DHT_Client:
         Raises:
             EmptyDataFromDHT: Если данные по ключу отсутствуют или пусты.
         """
-        data = await self._server.get(key)
-        if not data:
-            raise EmptyDHTDataError
-        return data
+        try:
+            data = await self._server.get(key)
+            if not data:
+                raise EmptyDHTDataError
+            return data
+        except RuntimeError:
+            return ''
     
     def set_listen_port(self, port: PortType, make_reconnect: bool = True) -> None:
         """

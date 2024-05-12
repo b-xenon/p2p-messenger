@@ -726,7 +726,7 @@ class WinApp(TkinterDnD.Tk):
         wg.CustomMessageBox.show(self, 'Инфо', 'Подождите, идет загрузка аккаунта.', wg.CustomMessageType.INFO)
 
         self._last_user_id = self._client_info.user_id
-        self._client_helper.set_client_info(deepcopy(self._client_info))
+        self._client_helper.set_client_info(self._dialog_manager, deepcopy(self._client_info))
 
         try:
             self._client_helper.save_account()

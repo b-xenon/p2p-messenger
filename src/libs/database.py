@@ -21,7 +21,7 @@ class HistoryDatabaseManager:
         
         self._table_name = ''
 
-    def set_table_name(self, user_id_hash: str, peer_id_hash: str):
+    def set_table_name(self, peer_id_hash: str):
         """
             Создает шаблоны названий для таблицы базы данных для данного диалога.
 
@@ -30,7 +30,7 @@ class HistoryDatabaseManager:
             peer_id_hash (str): Id собеседника
         """
         self._peer_id_hash = peer_id_hash
-        self._table_name = strip_bad_symbols(f'table_{user_id_hash}_{peer_id_hash}')
+        self._table_name = strip_bad_symbols(f'table_{self._user_id_hash}_{peer_id_hash}')
         self._database_key = Encrypter.load_database_encode_key(self._user_id_hash, self._user_password, self._peer_id_hash)
 
 
@@ -564,6 +564,41 @@ class AccountDatabaseManager:
             raise KeyLoadingError(f'Ключ для [{peer_id_hash}] не найден!')
         except sqlite3.Error as e:
             raise KeyLoadingError(f'Не удалось загрузить ключ для [{peer_id_hash}]. Произошла ошибка [{e}].')
+        finally:
+            if conn: # type: ignore
+                conn.close()
+
+    @staticmethod
+    def fetch_all_peer_id(user_id_hash: UserIdHashType) -> list[UserIdHashType]:
+        """
+            Возвращает Peer ID всех диалогов с User ID.
+
+        Args:
+            user_id_hash (UserIdHashType): Id пользователя.
+            
+        Returns:
+            list[UserIdHashType]: list(Id собеседника).
+
+        Raises:
+            DatabaseGetDataError: Если не удалось загрузить данные или пользователь не найден.
+        """
+        try:    
+            # Подключение к базе данных (или её создание, если она не существует)
+            conn = AccountDatabaseManager.connect()
+            cursor = conn.cursor()
+
+            # Параметризованный запрос для извлечения ключа шифрования
+            req = "SELECT peer_id_hash FROM user_keys WHERE user_id_hash=?;"
+            cursor.execute(req, (user_id_hash,))
+            peer_ids = cursor.fetchall()
+
+            if not peer_ids:
+                raise DatabaseGetDataError(f'Данные для [{user_id_hash}] не найдены!')
+            # Преобразование списка кортежей в список строк
+            return [peer_ids[0] for peer_ids in peer_ids]
+            
+        except sqlite3.Error as e:
+            raise DatabaseGetDataError(f'Не удалось загрузить данные для [{user_id_hash}]. Произошла ошибка [{e}].')
         finally:
             if conn: # type: ignore
                 conn.close()

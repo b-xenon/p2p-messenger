@@ -605,7 +605,7 @@ class UserSession:
 
         active_users.append(self._peer_user_id_hash)
 
-        self._database.set_table_name(self._user_id_hash, self._peer_user_id_hash)
+        self._database.set_table_name(self._peer_user_id_hash)
 
     def _load_and_send_dialog_history(self) -> None:
         """
@@ -1518,12 +1518,34 @@ class ClientHelper:
     def is_own_ip(self, peer_ip: IPAddressType) -> bool:
         return self._ip_address == peer_ip
 
-    def set_client_info(self, client_info: ClientInfo) -> None:
+    def set_client_info(self, dialog_manager: DialogManager, client_info: ClientInfo) -> None:
         """
             Устанавливает значения, введенные пользователем.
         Args:
             client_info (ClientInfo): Клиентская информация.
         """
+        if self._client._client_info.user_id != client_info.user_id:
+            try:
+                peers_ids_hash = AccountDatabaseManager.fetch_all_peer_id(client_info.user_id_hash)
+                history_database = HistoryDatabaseManager(client_info.user_id_hash, client_info.user_password, self._logger)
+
+                for peer_id_hash in peers_ids_hash:
+                    history_database.set_table_name(peer_id_hash)
+                    history_data, _ = history_database.load_data()
+
+                    if history_data:
+                        self._inactive_dialogs[peer_id_hash] = SessionInfo(
+                            dialog_id=dialog_manager.add_dialog(
+                                dialog_name=peer_id_hash,
+                                interlocutor_id=peer_id_hash,
+                                dialog_history=history_data
+                            ),
+                            session_id=-1
+                        )
+                        dialog_manager.inactivate_dialog(self._inactive_dialogs[peer_id_hash].dialog_id)
+            except DatabaseGetDataError as e:
+                self._logger.error(f"{e}")
+
         self._client.set_client_info(client_info)
 
     def get_hash(self, input_string: str, desired_length: int = 256) -> str:
