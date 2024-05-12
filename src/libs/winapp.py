@@ -301,8 +301,7 @@ class WinApp(TkinterDnD.Tk):
         """
         child_window = tkinter.Toplevel(self)
         child_window.title('Авторизация')
-        child_window.geometry('500x165')
-        child_window.minsize(500, 165)
+        child_window.geometry('500x190')
         child_window.resizable(False, False)
 
         try:
@@ -439,7 +438,7 @@ class WinApp(TkinterDnD.Tk):
 
         self.__child_window = tkinter.Toplevel(self)
         self.__child_window.title('Ввод пользовательской информации')
-        self.__child_window.geometry('500x600')
+        self.__child_window.geometry('500x675')
         self.__child_window.resizable(False, False)
 
         if first_initialization:
