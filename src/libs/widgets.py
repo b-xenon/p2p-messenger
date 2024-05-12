@@ -246,6 +246,8 @@ class PlaceholderEntry(ttk.Entry):
         else:
             self.put_placeholder()
 
+        self._change_color()
+
     def put_placeholder(self):
         """Вставляет текст-подсказку в поле ввода и устанавливает цвет шрифта для подсказки."""
         self.delete(0, 'end')
@@ -578,6 +580,7 @@ class Dialog(ttk.Frame):
 
         self._setup_widgets()  # Метод установки виджетов
         self._bind_events()  # Метод привязки событий
+        self._change_color()
    
     def _setup_widgets(self) -> None:
         """
