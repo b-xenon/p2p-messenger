@@ -474,7 +474,9 @@ class WinApp(TkinterDnD.Tk):
         entry_id.pack(padx=15, pady=15, expand=True, fill='x', side='left')
         wg.Tooltip(entry_id, config.WIDGETS.DESCRIPTIONS.USER_ID)
 
+        registered_users = []
         if first_initialization:
+            registered_users = self._client_helper.get_all_registered_users()
             entry_id.configure(state='normal')
 
             frame_password = ttk.Frame(labelframe_account_settings)
@@ -562,11 +564,11 @@ class WinApp(TkinterDnD.Tk):
         label_dht_client_port.pack(padx=15, pady=15, side='left')
 
         self.__dht_client_port_var_temp = wg.PlaceholderVar(value=self._client_info.dht_client_port)
-        entry_dht_client_port = wg.PlaceholderEntry(frame_dht_client_port, placeholder=str(config.NETWORK.DHT_CLEINT_PORT), textvariable=self.__dht_client_port_var_temp)
+        entry_dht_client_port = wg.PlaceholderEntry(frame_dht_client_port, placeholder=str(config.NETWORK.DHT_CLIENT_PORT), textvariable=self.__dht_client_port_var_temp)
         entry_dht_client_port.pack(padx=15, pady=15, expand=True, fill='x', side='left')
         wg.Tooltip(entry_dht_client_port, config.WIDGETS.DESCRIPTIONS.DHT_CLIENT_PORT)
 
-        button = ttk.Button(frame_main, text='Продолжить', width=30, command=lambda: self.__apply_changes(first_initialization))
+        button = ttk.Button(frame_main, text='Продолжить', width=30, command=lambda: self.__apply_changes(registered_users, first_initialization))
         button.pack(padx=15, pady=10)
 
         # Захват ввода для модального окна
@@ -576,11 +578,16 @@ class WinApp(TkinterDnD.Tk):
         self.__child_window.wait_window()
         self.deiconify()
 
-    def __apply_changes(self, first_initialization: bool = False) -> None:        
+    def __apply_changes(self, registered_users: list[UserIdType], first_initialization: bool = False) -> None:        
         if first_initialization:
             if not self.__user_id_var_temp.get():
                 wg.CustomMessageBox.show(self.__child_window, 'Ошибка', 'Перед продолжением необходимо ввести свой ID!', wg.CustomMessageType.ERROR)
                 self._logger.error('Перед продолжением необходимо ввести свой айди!')
+                return
+            
+            if self.__user_id_var_temp.get() in registered_users:
+                wg.CustomMessageBox.show(self.__child_window, 'Ошибка', f'Пользователь с ID [{self.__user_id_var_temp.get()}] уже зарегистрирован!', wg.CustomMessageType.ERROR)
+                self._logger.error(f'Пользователь с ID [{self.__user_id_var_temp.get()}] уже зарегистрирован!')
                 return
 
             if not self.__user_password_var_temp.get():

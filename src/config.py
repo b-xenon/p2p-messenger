@@ -23,7 +23,7 @@ class _NetworkPingConfig(NamedTuple):
 
 class _NetworkConfig(NamedTuple):
     DHT: _NetworkDHTConfig
-    DHT_CLEINT_PORT: PortType
+    DHT_CLIENT_PORT: PortType
     CLIENT_COMMUNICATION_PORT: PortType
     PING: _NetworkPingConfig
 
@@ -100,7 +100,7 @@ class _Config(NamedTuple):
             PORT = 60800,
             IP   = '192.168.31.169'
         ),
-        DHT_CLEINT_PORT=60798, 
+        DHT_CLIENT_PORT=60798, 
         CLIENT_COMMUNICATION_PORT=60801,
         PING=_NetworkPingConfig(INTERVAL=5, TIMEOUT=15)
     )

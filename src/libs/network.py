@@ -1157,7 +1157,7 @@ class ClientManager:
         self._listener_socket = None
         self._listen_communication_port: PortType = port
 
-        self.dht = DHT_Client(listen_port=config.NETWORK.DHT_CLEINT_PORT)
+        self.dht = DHT_Client(listen_port=config.NETWORK.DHT_CLIENT_PORT)
         self.event: NetworkEvent = NetworkEvent()
         self._client_info: ClientInfo = ClientInfo()
 

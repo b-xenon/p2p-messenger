@@ -57,7 +57,7 @@ class ClientInfo:
     user_dht_key: str = ''
     dht_node_ip: IPAddressType = ''
     dht_node_port: PortType = config.NETWORK.DHT.PORT
-    dht_client_port: PortType = config.NETWORK.DHT_CLEINT_PORT
+    dht_client_port: PortType = config.NETWORK.DHT_CLIENT_PORT
     application_port: PortType = config.NETWORK.CLIENT_COMMUNICATION_PORT
     use_local_ip: bool = False
     dht_peers_keys: DHTNodeHistory = DHTNodeHistory()
