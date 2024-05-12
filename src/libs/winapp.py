@@ -194,8 +194,7 @@ class WinApp(TkinterDnD.Tk):
             self._change_account()
             self._client_info = ClientInfo()
             self.title(f"Client")
-            self._combo_alien_dht_key.set('')
-            self._combo_alien_dht_key['values'] = []
+            self._clear_alien_combobox()
             registered_users = self._client_helper.get_all_registered_users()
             threading.Thread(target=self._create_sign_in_window, args=(registered_users,), daemon=True).start()
 
@@ -385,11 +384,7 @@ class WinApp(TkinterDnD.Tk):
                 return
             
             self._client_info = self._client_helper.load_user_info(login, password)
-
-            for dht_node in self._client_info.dht_peers_keys.nodes_history:
-                if dht_node.ip_address == self._client_info.dht_node_ip:
-                    for dht_key in dht_node.dht_keys:
-                        self._combo_alien_dht_key['values'] = (*self._combo_alien_dht_key['values'], dht_key)
+            self._pull_alien_combobox()
 
             threading.Thread(target=self._use_local_ip_var.set, args=(self._client_info.use_local_ip ,), daemon=True).start()
             child_window.destroy()
@@ -415,6 +410,24 @@ class WinApp(TkinterDnD.Tk):
         # Ограничение доступа к другим окнам до закрытия этого окна
         child_window.wait_window()
         self.deiconify()
+
+    def _clear_alien_combobox(self):
+        """
+            Отчищает комбобокс значений DHT ключей собеседников.
+        """
+        self._combo_alien_dht_key.set('')
+        self._combo_alien_dht_key['values'] = ()
+
+    def _pull_alien_combobox(self):
+        """
+            Заполняет комбобок значениями DHT ключей собеседников для текущего DHT-node IP.
+        """
+        self._clear_alien_combobox()
+
+        for dht_node in self._client_info.dht_peers_keys.nodes_history:
+            if dht_node.ip_address == self._client_info.dht_node_ip:
+                for dht_key in dht_node.dht_keys:
+                    self._combo_alien_dht_key['values'] = (*self._combo_alien_dht_key['values'], dht_key)
 
     def _create_child_window_for_entering_user_info(self, first_initialization: bool = False):
         """
@@ -678,9 +691,12 @@ class WinApp(TkinterDnD.Tk):
             self._client_info.user_id_hash  = self._client_helper.get_hash(self._client_info.user_id, len(self._client_info.user_id) + config.USER_ID_HASH_POSTFIX_SIZE)
             self._client_info.user_password_hash  = self._client_helper.get_hash(self._client_info.user_password)
 
+        if self._client_info.dht_node_ip != self.__dht_node_ip_var_temp.get():
+            self._client_info.dht_node_ip = self.__dht_node_ip_var_temp.get()
+            self._pull_alien_combobox()
+
         self._client_info.user_name        = self.__user_name_var_temp.get()
         self._client_info.user_dht_key     = self.__user_dht_key_var_temp.get()
-        self._client_info.dht_node_ip      = self.__dht_node_ip_var_temp.get()
         self._client_info.dht_node_port    = int(self.__dht_node_port_var_temp.get())
         self._client_info.application_port = int(self.__app_port_var_temp.get())
         self._client_info.dht_client_port  = int(self.__dht_client_port_var_temp.get())

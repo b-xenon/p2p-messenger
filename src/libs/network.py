@@ -469,25 +469,29 @@ class UserSession:
             self.close(silent_mode=True)
             return
 
-        self._rsa_public_key_processing(received_data)
+        if not self._rsa_public_key_processing(received_data):
+            return
 
         self._update_peer_info(received_data)
         self._load_and_send_dialog_history()
         self._send_connetion_event()
 
-    def _rsa_public_key_processing(self, received_data: NetworkData) -> None:
+    def _rsa_public_key_processing(self, received_data: NetworkData) -> bool:
         """
             Обработка публичного RSA ключа собеседника.        
 
         Args:
             received_data (NetworkData): Полученные данные для Init
+
+        Returns:
+            bool: True - продолжаем работу, False - выходим.
         """
         ret_val = self._check_is_known_public_rsa_key(received_data.additional.user_id_hash)
         if ret_val == 1:
-            return
+            return True
         elif ret_val == -1:
             self._add_new_peer_rsa_key_to_database(received_data.additional.user_id_hash, self._peer_rsa_public_key)
-            return
+            return True
         
         self._logger.debug(f'Отправляю ивент на согласие пользователя на начало диалога с [{received_data.additional.user_id_hash}].')
         self._send_event(
@@ -501,12 +505,14 @@ class UserSession:
 
         # Если клиент решил не начинать общение с незнакомым собеседником, то просто выходим
         if self._client_decision != ClientDecision.YES:
-            self._logger.debug(f'Пользователя решил не начинать диалог с [{received_data.additional.user_id_hash}].')
+            if self._client_decision == ClientDecision.NO:
+                self._logger.debug(f'Пользователя решил не начинать диалог с [{received_data.additional.user_id_hash}].')
             self.close(silent_mode=True)
-            return
+            return False
         
         # Иначе сохраняем его
         self._add_new_peer_rsa_key_to_database(received_data.additional.user_id_hash, self._peer_rsa_public_key)
+        return True
 
     def _check_is_known_public_rsa_key(self, peer_id_hash: UserIdHashType) -> int:
         """
@@ -538,22 +544,22 @@ class UserSession:
             self._logger.debug(f'Это первый диалог с собеседником [{peer_id_hash}].')
             return -1
 
-    def _wait(self, seconds: int = 10):
+    def _wait(self, seconds: int = 5):
         """
             Ожидает заданное время, пока оно не истечет, либо не измениться параматр _client_decision.
 
         Args:
-            seconds (int, optional): Время ожидания в секундах. По умолчанию 10.
+            seconds (int, optional): Время ожидания в секундах. По умолчанию 5.
         """
         start = time.time()
-        end = time.time()
-
         self._logger.debug(f'Ожидаю решения пользователя [{seconds}] секунд.')
-        while self._is_active and self._client_decision == ClientDecision.NONE and (start - end) < seconds:
-            end = time.time()
+        while self._is_active and self._client_decision == ClientDecision.NONE and (time.time() - start) < seconds:
             time.sleep(0.1)
         
-        self._logger.debug(f'Ожидание завершено. Пользователь изменил состояние на [{self._client_decision.name}].')
+        if self._client_decision == ClientDecision.NONE and (time.time() - start) > seconds:
+            self._logger.debug(f'Ожидание завершено. Был произведен выход по таймеру.')
+        else:
+            self._logger.debug(f'Ожидание завершено. Пользователь изменил состояние на [{self._client_decision.name}].')
 
     def _add_new_peer_rsa_key_to_database(self, peer_id_hash: UserIdHashType, peer_rsa_pub_key: RSA_KeyType) -> None:
         """
