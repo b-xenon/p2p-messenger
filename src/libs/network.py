@@ -1721,6 +1721,10 @@ class ClientHelper:
                                     dialog_id=self._inactive_dialogs[event_data.event_data.user_id_hash].dialog_id,
                                     session_id=event_data.event_data.session_id
                                 )
+                                dialogs.set_dialog_name(
+                                    dialog_id=self._active_dialogs[event_data.event_data.user_id_hash].dialog_id,
+                                    dialog_name=event_data.event_data.user_name
+                                )
 
                                 del self._inactive_dialogs[event_data.event_data.user_id_hash]
                             else:

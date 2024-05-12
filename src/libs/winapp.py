@@ -738,7 +738,7 @@ class WinApp(TkinterDnD.Tk):
         ip_address = self._client_helper.get_ip()
 
         self.title(f"Client: ip[{ip_address}] | id[{self._client_info.user_id}] | name[{self._client_info.user_name}]")
-        self._dialog_manager.set_username(self._client_info.user_name)
+        self._dialog_manager.set_user_name(self._client_info.user_name)
 
         self._logger.debug(f'Добавляю свой ip [{ip_address}] в DHT по ключу [{self._client_info.user_dht_key}].')
         

@@ -45,8 +45,7 @@ class DHT_Client:
 
         self.is_active = False
 
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
+        self._loop = asyncio.get_event_loop()
         self._server = Server()
         
     def start(self, dht_ip: IPAddressType, dht_port: PortType):
@@ -145,13 +144,17 @@ class DHT_Client:
         self._loop.run_until_complete(self._reconnect(new_ip, new_port))
 
     async def _reconnect(self, new_ip: str, new_port: int) -> None:
-        # Отключите существующий узел начальной загрузки
-        self._server.stop()
-        # Установите новый IP-адрес и порт
-        self._dht_ip = new_ip
-        self._dht_port = new_port
-        # Подключиться к новому узлу начальной загрузки
-        self._loop.run_until_complete(self._init_server())
+        try:
+            # Отключите существующий узел начальной загрузки
+            self._server.stop()
+            # Установите новый IP-адрес и порт
+            self._dht_ip = new_ip
+            self._dht_port = new_port
+            await asyncio.sleep(1)  # Пауза для корректного завершения предыдущих операций
+            # Подключиться к новому узлу начальной загрузки
+            await self._init_server()
+        except Exception as e:
+            print(f"Failed to reconnect: {e}")
 
     def stop(self):
         """

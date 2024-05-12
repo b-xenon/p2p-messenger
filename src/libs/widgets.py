@@ -931,7 +931,7 @@ class DialogManager(ttk.Frame):
         super().__init__(master, **kwargs)
 
         self._master: Any = master
-        self._username: str = username
+        self._user_name: str = username
         self._command: Any = command
         self._dialogs: dict[int, DialogInfo] = {}
         self._hidden_tabs: dict[int, tuple[Any, str]] = {}
@@ -1008,14 +1008,27 @@ class DialogManager(ttk.Frame):
             self._middle_click_handler(dialog.get_interlocutor_id())
             self.hide_dialog(dialog.get_id())
 
-    def set_username(self, username: str) -> None:
+    def set_user_name(self, user_name: str) -> None:
         """
             Устанавливает или обновляет имя пользователя.
 
         Args:
             username: Новое имя пользователя.
         """
-        self._username = username
+        self._user_name = user_name
+        for _, dialog in self._dialogs.items():
+            dialog.dialog._username = user_name
+
+    def set_dialog_name(self, dialog_id: int, dialog_name) -> None:
+        """
+            Обновляет название диалога.
+
+        Args:
+            dialog_id (int): ID диалога.
+            dialog_name (str): Новое название диалога.
+        """
+        if dialog_id in self._dialogs:
+            self._dialogs[dialog_id].dialog._dialog_name = dialog_name
 
     def add_dialog(self, dialog_name: str, interlocutor_id: str, dialog_history: List[MessageTextData]) -> int:
         """
@@ -1033,7 +1046,7 @@ class DialogManager(ttk.Frame):
         dialog = Dialog(
             master          = self._notebook_dialogs,
             interlocutor_id = interlocutor_id,
-            username        = self._username,
+            username        = self._user_name,
             dialog_name     = dialog_name,
             command         = self._command
         )
