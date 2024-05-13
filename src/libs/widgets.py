@@ -102,10 +102,10 @@ class _MessageBox(tk.Toplevel):
 
     def run(self, blocking: bool = False) -> None:
         self.create_widgets()
-
+        # Захват ввода для модального окна
+        self.grab_set()
+        
         if blocking:
-            # Захват ввода для модального окна
-            self.grab_set()
             # Ограничение доступа к другим окнам до закрытия этого окна
             self.wait_window()
 
